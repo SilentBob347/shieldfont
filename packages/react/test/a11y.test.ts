@@ -27,6 +27,7 @@ import {
   props,
   shieldedBlock,
   walkAll,
+  visibleText,
   walkDeep,
 } from "./helpers.js";
 
@@ -589,7 +590,12 @@ describe("still encodes", () => {
     );
     // Visible in the bar for sighted readers...
     expect(shown.length).toBeGreaterThan(0);
-    expect(String(props(shown[0]!).children)).toContain("screen reader");
+    // visibleText, not `children`: the sentence is two spans now — one for
+    // eyes (aria-hidden) and one for ears (clipped) — because a label on the
+    // note got BOTH announced, the short version then the long one. String()
+    // over an array of elements yields "[object Object]", which is what this
+    // asserted against until it was looked at.
+    expect(visibleText(shown[0]!)).toContain("screen reader");
     // ...and it is a REAL TAB STOP on the lead strip. Three placements were
     // tried before this one: a plain text node (Tab cannot reach prose), and
     // aria-describedby (a description, which VoiceOver and NVDA both suppress

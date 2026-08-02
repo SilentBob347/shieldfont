@@ -127,6 +127,23 @@ export interface ShieldNotice {
   brokenText?: string;
 
   /**
+   * The SPOKEN name of the sentence on every block after the first. Default
+   * `"Scrambled text. Uncover the original below."`
+   *
+   * {@link text} is what every strip SHOWS, on every block, because a sighted
+   * reader arriving at block four has not necessarily seen block one. This is
+   * what a screen reader is handed from block two onward, and it is shorter for
+   * the opposite reason: a listener meets the blocks in order, and the long
+   * sentence exists so they can recognise themselves in it — "if you use a
+   * screen reader, custom font, or translator" — which they need to do once.
+   *
+   * Measured before this existed: a locked four-block page spoke 273 words, 63
+   * of them this sentence repeating. The clipped tier had solved it since
+   * 0.3.0; the drawn tier had not.
+   */
+  repeat?: string;
+
+  /**
    * `"top"` (default) draws the strip once, above the text.
    *
    * `"both"` repeats it at the end of the box, for a passage long enough that a
@@ -204,6 +221,19 @@ export interface ShieldNotice {
      * {@link ShieldNotice.text}.
      */
     group?: string;
+
+    /**
+     * Names the frame ONCE THE WORDS ARE ON SCREEN. Default `"Original text"`,
+     * rendered as `"Original text, <element> <n>"`.
+     *
+     * A second name exists because the first one stops being true. The frame is
+     * named "Protected text" while it is protected; leaving it that way meant a
+     * reader who waited several seconds heard the region call itself protected
+     * immediately before reading them the thing it had just stopped protecting.
+     * Real NVDA reads the group name and the sentence together, so the two
+     * arrived in one breath saying opposite things.
+     */
+    groupOpen?: string;
     /**
      * Names the `<progress>` element. Default `"Decoding progress"`.
      *
@@ -232,6 +262,7 @@ export interface ResolvedNotice {
   short: string;
   text: string;
   brokenText: string;
+  repeat: string;
   position: "top" | "both";
   labels: {
     show: string;
@@ -239,6 +270,7 @@ export interface ResolvedNotice {
     restore: string;
     info: string;
     group: string;
+    groupOpen: string;
     progress: string;
     gist: string;
     showLong: string;
@@ -308,6 +340,9 @@ export function standaloneClipboardNotice(): string {
  * that names our mechanism, not their problem, and a reader who has just been
  * handed nonsense does not need a lesson in typography to get out of it.
  */
+/** The spoken name of the sentence on blocks after the first. See `repeat`. */
+export const DEFAULT_REPEAT = "Scrambled text. Uncover the original below.";
+
 export const DEFAULT_BROKEN =
   "The text below isn’t showing correctly. Uncover the original to read it.";
 
@@ -319,6 +354,7 @@ export function resolveNotice(n: ShieldNotice | true): ResolvedNotice {
     short: cfg.short ?? DEFAULT_SHORT,
     text,
     brokenText: cfg.brokenText ?? DEFAULT_BROKEN,
+    repeat: cfg.repeat ?? DEFAULT_REPEAT,
     position: cfg.position ?? "top",
     labels: {
       show: l.show ?? "Uncover",
@@ -331,6 +367,7 @@ export function resolveNotice(n: ShieldNotice | true): ResolvedNotice {
       // gets a translated group name for free and never has to discover that
       // the frame had a second, separate string to override.
       group: l.group ?? "Protected text",
+      groupOpen: l.groupOpen ?? "Original text",
       progress: l.progress ?? "Decoding progress",
     },
     copyGuard: cfg.copyGuard ?? true,
@@ -455,6 +492,8 @@ function innerCss(F: string, attr: string): string {
     `${F} [${attr}-strip][${attr}-toasting] [${attr}-say-full],` +
     `${F} [${attr}-strip][${attr}-toasting] [${attr}-icon]{opacity:0;transition:opacity .16s;}` +
     `@media (prefers-reduced-motion:reduce){${F} [${attr}-toast]{transition:opacity .01ms;transform:none;}}` +
+    `${F} .${attr}-clipped{position:absolute;width:1px;height:1px;overflow:hidden;`+
+    `clip-path:inset(50%);white-space:nowrap;}` +
     `${F} [${attr}-say-full]{margin:0;font-family:inherit;font-size:12px;`+
     `line-height:1.32;font-weight:400;text-transform:none;letter-spacing:normal;`+
     // NO text-wrap:balance. Balancing evens the line lengths, which on a
@@ -831,6 +870,8 @@ Frame.prototype.standdown = function(){
 };
 Frame.prototype.paint = function(){
   var self = this, st = this.state, open = st === 'open';
+  var gn = open ? this.says.groupOpen : this.says.group;
+  if (gn) this.root.setAttribute('aria-label', gn);
   if (!FONT_OK && !open) this.root.setAttribute(A + '-failed', '1');
   else this.root.removeAttribute(A + '-failed');
   var broken = !FONT_OK && !open;
@@ -854,7 +895,18 @@ Frame.prototype.paintStrip = function(strip){
   var shortEl = strip.querySelector('[' + A + '-say-full]');
   if (shortEl && st !== 'working') {
     var key = st === 'open' ? '-open-say' : (FONT_OK ? '-locked-say' : '-broken-say');
-    shortEl.textContent = strip.getAttribute(A + key) || '';
+    var seen = strip.getAttribute(A + key) || '';
+    var heard = st === 'open' || !FONT_OK
+      ? seen
+      : (strip.getAttribute(A + '-locked-name') || seen);
+    var eye = shortEl.querySelector('[' + A + '-seen]');
+    var ear = shortEl.querySelector('[' + A + '-heard]');
+    if (eye && ear){
+      eye.textContent = seen;
+      ear.textContent = heard;
+    } else {
+      shortEl.textContent = seen;
+    }
   }
   if (st === 'working') strip.setAttribute(A + '-loading', '');
   else strip.removeAttribute(A + '-loading');

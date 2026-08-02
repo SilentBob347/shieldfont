@@ -297,13 +297,16 @@ try {
     fullSpoken.some((p, i) => /^note$/.test(p.trim()) && /screen reader/.test(fullSpoken[i + 1] || "")),
     "FULL: and it is reached as a note, not as loose text",
   );
-  if (explained.length > 1) {
-    notes.push(
-      `the full sentence is spoken ${explained.length}x on a 2-block page — the drawn tier ` +
-        `repeats it per strip, where the clipped tier shortens after the first block ` +
-        `(A11Y_NOTE_REPEAT). On a long article that is the same obstacle in a new place.`,
-    );
-  }
+  // ONCE PER PAGE, NOT ONCE PER BLOCK. This was a `note:` the audit printed and
+  // did not fail on — the drawn tier repeated the full sentence on every strip
+  // where the clipped tier had shortened after the first block since 0.3.0. It
+  // is an assertion now that both tiers do it. The VISIBLE text is still the
+  // full sentence on every block; only the spoken name shortens.
+  check(
+    explained.length === 1,
+    "FULL: the long sentence is spoken once per page, not once per block",
+    `${explained.length}x`,
+  );
   // Both controls named, and the names differ — here they SHOULD, because Copy
   // and Uncover do different things to the same block.
   const acts = fullSpoken.filter((p) => /^button,/.test(p.trim()));

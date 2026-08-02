@@ -2307,7 +2307,23 @@ function NoticeStrip({
   const cfgMeasuring = "Loading text…";
   const strip = {
     [`${attr}-strip`]: where,
+    // THE FULL SENTENCE ONCE PER PAGE, A SHORT ONE AFTER.
+    //
+    // The clipped tier has done this since 0.3.0 (A11Y_NOTE_REPEAT) and the
+    // drawn tier never did, so a four-block article read the same twenty-one
+    // words four times before a listener reached any content. Measured over a
+    // real accessibility tree: 273 spoken words for a locked four-block page,
+    // of which 63 were this sentence repeating. The reason the long version
+    // exists is so a reader can recognise themselves in it — "if you use a
+    // screen reader, custom font, or translator" — and they only need to
+    // recognise themselves once.
+    //
+    // The VISIBLE text is unchanged: every strip still shows the full sentence,
+    // because a sighted reader arriving at block four has not necessarily seen
+    // block one, and the strip is the only thing telling them what the box is.
+    // This is the spoken name only.
     [`${attr}-locked-say`]: notice.text,
+    [`${attr}-locked-name`]: firstOnPage ? notice.text : notice.repeat,
     [`${attr}-broken-say`]: notice.brokenText,
     [`${attr}-open-say`]: openSay,
     // TWO ATTRIBUTES DELETED HERE, and one of them mattered.
@@ -2377,7 +2393,44 @@ function NoticeStrip({
           className={`${attr}-say-full`}
           {...({ [`${attr}-say-full`]: "" } as Record<string, string>)}
         >
-          {notice.text}
+          {/*
+            TWO HALVES: one for eyes, one for ears, and only ever one of them in
+            the accessibility tree.
+
+            An aria-label on this element does not work, and trying it is what
+            produced the worst output yet. The reader walks INTO a note and reads
+            its contents, so a label plus visible children got BOTH announced —
+            the short sentence and then the long one, back to back.
+
+            So the visible half is aria-hidden and the spoken half is clipped.
+            On the first block of a page they carry the same words; after that
+            the spoken one shortens, because a listener meets the blocks in order
+            and only needs to recognise themselves in "if you use a screen
+            reader, custom font, or translator" once. A sighted reader arriving
+            at block four may not have seen block one, so the visible sentence
+            never shortens.
+
+            NEITHER HALF SHIPS `hidden`, and that is deliberate. The clipped one
+            did, so the script could un-hide it — and the script runs before
+            React hydrates, so React found an attribute in its server HTML that
+            was gone from the DOM and reported a mismatch it "won't patch up".
+            The server already renders the right words into both halves; the
+            script only ever repaints them on a state change. Nothing has to be
+            mutated before hydration, so there is nothing to disagree about.
+
+            With JavaScript off this is still correct: the visible half is
+            aria-hidden and the clipped half is not, so exactly one of them is in
+            the accessibility tree either way.
+          */}
+          <span aria-hidden="true" {...({ [`${attr}-seen`]: "" } as Record<string, string>)}>
+            {notice.text}
+          </span>
+          <span
+            className={`${attr}-clipped`}
+            {...({ [`${attr}-heard`]: "" } as Record<string, string>)}
+          >
+            {lead ? notice.text : notice.repeat}
+          </span>
         </span>
         {/*
           Copy confirmation, laid OVER the sentence rather than beside it, so
@@ -3074,6 +3127,23 @@ export function Shield(props: ShieldProps) {
         // this sentence to nobody. Reading as a confirmation-plus-next-step
         // rather than an introduction is what that ordering asks of it.
         done: "You are now reading the original text.",
+        // THE FRAME'S NAME, IN BOTH STATES, so the script can repaint it.
+        //
+        // It could not before, and the result was the sharpest thing anyone has
+        // reported about this component: a reader waits several seconds for
+        // their words, and the last thing they hear first is the region calling
+        // itself "Protected text" — which by then is false. Confirmed on real
+        // NVDA, which reads the group name and the sentence in one breath:
+        //
+        //   "Protected text, heading 1, grouping, If you use a screen reader…"
+        //
+        // And it is not only heard on entry. Hiding the Uncover button on open
+        // drops focus to <body>, then land() focuses the revealed text 120ms
+        // later — so focus crosses INTO the group from outside, which is
+        // exactly the transition a screen reader announces a container on.
+        // paint() runs before land(), so the new name is in place first.
+        group: groupName(cfg.labels.group ?? "Protected text", noun, ordinal),
+        groupOpen: groupName(cfg.labels.groupOpen ?? "Original text", noun, ordinal),
         err: "Something went wrong. You can try again.",
         copied: "The original is on your clipboard.",
         // The two toast lines. Same slot, opposite outcomes — green when the
