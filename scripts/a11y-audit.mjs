@@ -189,6 +189,23 @@ try {
   );
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
 
+  // WAIT FOR THE SPEECH, not just for the DOM.
+  //
+  // The wait above returns when the words are in the page. The polite live
+  // region announces them a beat later, so reading the log right after the DOM
+  // settles is a race — and it is the same one that made "unlocks every block"
+  // flaky: wait on one thing, assert on another. It passed here every time and
+  // failed on CI, which is the shape that gets a runner blamed instead of the
+  // test.
+  await page
+    .waitForFunction(
+      // spokenPhraseLog() is async here, unlike lastSpokenPhrase() elsewhere in
+      // this file — waitForFunction awaits a returned promise, so this works.
+      async (want) => (await window.__v.spokenPhraseLog()).some((p) => p.includes(want)),
+      target.text,
+      { timeout: 30000, polling: 100 },
+    )
+    .catch(() => {});
   const said = await page.evaluate(() => window.__v.spokenPhraseLog());
   said.forEach((p) => console.log("   · " + p));
   check(said.some((p) => p.includes(target.text)), "the real words are spoken on completion", `${elapsed}s`);
