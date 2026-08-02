@@ -273,7 +273,7 @@ describe("the four tiers, and which one a bare <Shield> is", () => {
     // And the sentence a reader can see is really in the markup, not just an
     // element that could have held one.
     const said = walkDeep(t).some((e) =>
-      String(props(e).children ?? "").includes("scrambled"),
+      String(props(e).children ?? "").includes("please uncover the text"),
     );
     expect(said).toBe(true);
   });

@@ -367,8 +367,8 @@ any scraper for free — the same free bypass as the `href` that was removed.
 
 The first text-mode block on a page gets the full explanation:
 
-> If you use a screen reader, custom font, or translator, the text below might
-> appear scrambled. Uncover to see the original.
+> If you use a screen reader, custom font, or translator, please uncover the
+> text before reading.
 
 Every block after it gets the short form:
 

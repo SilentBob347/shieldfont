@@ -22,6 +22,7 @@ import {
   shieldedBlock,
   descendants,
   visibleText,
+  walkDeep,
 } from "./helpers.js";
 
 const BODY = "The future of writing belongs to those who write it.";
@@ -266,8 +267,12 @@ describe("the control is usable by a screen reader", () => {
     const trees = withShieldRenderPass(() =>
       [1, 2, 3].map((i) => Shield({ children: `${BODY} ${i}`, ...INVISIBLE })),
     );
+    // Found by ROLE, not by a word in the sentence. This used to grep for
+    // "crambled", which broke the day the default wording changed and did not
+    // contain it any more — the test was pinned to the copy rather than to the
+    // structure it exists to check.
     const notes = trees.map((t) =>
-      String(props(walkAll(t).find((e) => String(props(e).children).includes("crambled"))!).children),
+      String(props(walkDeep(t).find((e) => props(e).role === "note")!).children),
     );
     expect(notes[0].length).toBeGreaterThan(notes[1].length);
     expect(notes[1]).toBe(notes[2]);

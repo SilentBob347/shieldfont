@@ -260,8 +260,8 @@ export const DEFAULT_SHORT = "Protected from AI bots.";
  * two passives and reads badly aloud, which matters more here than on screen.
  */
 export const DEFAULT_TEXT =
-  "If you use a screen reader, custom font, or translator, the text below might " +
-  "appear scrambled. Uncover to see the original.";
+  "If you use a screen reader, custom font, or translator, please uncover the " +
+  "text before reading.";
 
 /**
  * What lands in the clipboard when a selection touches still-protected text
