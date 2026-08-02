@@ -55,6 +55,49 @@ jobs:
           TMPDIR: /tmp
         run: npm run test:hydration
 
+  # ---- REAL NVDA -----------------------------------------------------------
+  #
+  # Not a simulator. Guidepup installs NVDA and drives it over NVDA's own Remote
+  # Access protocol, so what this asserts on is NVDA's speech commands as they
+  # happen. Issue #2's central criticism is that this project had only ever been
+  # tested with VoiceOver, which is under half of screen reader users; this is
+  # the job that stops that being true.
+  #
+  # windows-latest is free and unmetered on public repositories, and the run
+  # takes ~3 minutes.
+  #
+  # NOT `guidepup/setup-action`. It is pinned to an older @guidepup/setup that
+  # records NVDA in the registry, while guidepup 0.29+ stopped reading the
+  # registry and looks only in %LOCALAPPDATA%\guidepup — the combination fails
+  # with ERR_NVDA_NOT_INSTALLED. Guidepup's own CI calls the CLI directly for
+  # this reason; so does this.
+  #
+  # ORDER MATTERS: `setup install` reads manifest.json out of the INSTALLED
+  # @guidepup/guidepup to know which NVDA build to fetch, so it has to run after
+  # npm install, and @guidepup/setup has to be pinned to a version whose
+  # manifest matches.
+  #
+  # headless is impossible here and that is not a flag we forgot: a screen
+  # reader is a singleton that needs a real interactive desktop (guidepup #83,
+  # closed wontfix). continue-on-error while the job earns its trust — a new
+  # screen-reader job that goes red on its first flake gets switched off by the
+  # third person it inconveniences. Remove it once it has been green for a
+  # couple of weeks.
+  nvda:
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npx -y @guidepup/setup@0.24.1 setup --ci
+      - run: npm install
+      - run: npm run build
+      - run: npx -y @guidepup/setup@0.24.1 install
+      - run: npx playwright install chromium
+      - run: npm run test:a11y:nvda
+
   fonts:
     # Gate on the shipped font binaries, not just the TS. A composite whose
     # hmtx left side bearing disagrees with its xMin renders with the last

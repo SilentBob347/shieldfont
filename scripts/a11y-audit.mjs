@@ -41,41 +41,11 @@
  * `file://` or `setContent`, because `crypto.subtle` only exists in a secure
  * context and localhost is one.
  */
-import { createServer } from "node:http";
-import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { chromium } from "playwright";
 import { Shield, withShieldRenderPass } from "../packages/react/dist/Shield.js";
-
-const require = createRequire(import.meta.url);
-
-/** Short puzzles: this audits behaviour, not the difficulty calibration. */
-const A11Y = { mode: "text", seconds: 5 };
-
-// The ordinal counts within its own noun, not across the page: a listener
-// hunting "the second heading" must hear a number that exists on the page.
-// Two paragraphs are included so that per-noun counting is actually exercised —
-// with one of each tag, a page-wide counter would pass this by accident.
-const BLOCKS = [
-  { as: "h2", text: "Manifesto for the open web", noun: "heading 1" },
-  {
-    as: "p",
-    noun: "paragraph 1",
-    text: "The future of writing belongs to those who write it, and the shapes that carry those words are not neutral.",
-  },
-  { as: "blockquote", noun: "quote 1", text: "A tax on attention is the only tax a crawler cannot refuse to pay." },
-  {
-    as: "p",
-    noun: "paragraph 2",
-    text: "Every sentence you publish feeds a machine that never stopped to ask you first.",
-  },
-];
-
-/** Words the encoder actually swaps here — a screen reader must never say them. */
-const DECOY_MARKERS = ["derives", "primer", "keep it"];
+import { BLOCKS, DECOY_MARKERS, A11Y, serveFixture } from "./lib/a11y-fixture.mjs";
 
 const failures = [];
 const notes = [];
@@ -84,80 +54,10 @@ function check(ok, name, detail = "") {
   if (!ok) failures.push(name);
 }
 
-// ---- The page under audit ---------------------------------------------------
-
-const body = withShieldRenderPass(() =>
-  renderToStaticMarkup(
-    h(
-      "main",
-      null,
-      h("h1", null, "Audit page"),
-      h("p", null, "Ordinary text, for contrast."),
-      // explain:false — THE INVISIBLE TIER, named explicitly.
-      //
-      // Every check below was written against the clipped control: the note and
-      // the solve button that are real, focusable and nowhere on screen. That
-      // used to be what a bare <Shield> rendered. Since 0.3.2 the default is
-      // FULL, which draws a wrapper — so this fixture silently became a page
-      // about a different tier, and six checks failed for the right reason.
-      // The second pass below audits the new default; this one keeps auditing
-      // what it was built to audit.
-      ...BLOCKS.map((b) => h(Shield, { as: b.as, a11y: A11Y, explain: false, children: b.text })),
-    ),
-  ),
-);
-const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>audit</title></head><body>${body}</body></html>`;
-
-/* THE SAME BLOCKS AT THE FULL TIER, served as its own route.
-   Built here rather than injected later with page.setContent(): the tier's
-   whole surface is drawn by an emitted <script> that wires itself at
-   DOMContentLoaded, and setContent does not give it one — the audit walked the
-   previous page and reported two missing buttons that were never rendered. */
-const fullBody = withShieldRenderPass(() =>
-  renderToStaticMarkup(
-    h(
-      "main",
-      null,
-      h("h1", null, "Audit page"),
-      ...BLOCKS.slice(0, 2).map((b) => h(Shield, { as: b.as, a11y: A11Y, children: b.text })),
-    ),
-  ),
-);
-const fullHtml = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>audit full</title></head><body>${fullBody}</body></html>`;
-
-// The virtual screen reader is served from the same origin so the page can
-// import it as a module.
-// Resolved via the package's own package.json rather than a deep path: the
-// package's `exports` map does not expose lib/ directly, and hard-coding a
-// node_modules path breaks under hoisting.
-const vsrDir = dirname(require.resolve("@guidepup/virtual-screen-reader/package.json"));
-const vsr = readFileSync(join(vsrDir, "lib/esm/index.browser.js"), "utf8");
-
-// The bundled woff2s are served too. Without them the font-load guard does
-// exactly what it should — declares the page broken and blanks every protected
-// block — which is correct behaviour that would nonetheless drown this audit in
-// console errors and make the page unrepresentative of a real deployment.
-const fontDir = new URL("../packages/react/fonts/", import.meta.url);
-const server = createServer((req, res) => {
-  if (req.url.startsWith("/vsr.js")) {
-    res.writeHead(200, { "content-type": "text/javascript" });
-    return res.end(vsr);
-  }
-  if (req.url.startsWith("/fonts/")) {
-    try {
-      const buf = readFileSync(new URL(req.url.slice("/fonts/".length), fontDir));
-      res.writeHead(200, { "content-type": "font/woff2" });
-      return res.end(buf);
-    } catch {
-      res.writeHead(404).end();
-      return;
-    }
-  }
-  res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-  res.end(req.url.startsWith("/full") ? fullHtml : html);
-});
-await new Promise((r) => server.listen(0, "127.0.0.1", r));
-const origin = `http://localhost:${server.address().port}`;
+// The fixture and its server moved to lib/a11y-fixture.mjs when the NVDA audit
+// arrived: two harnesses measuring different pages could not be compared, and
+// the point of the NVDA run is that it walks the same page this one does.
+const { origin, close } = await serveFixture({ withVsr: true });
 
 // ---- Drive it ---------------------------------------------------------------
 
@@ -416,7 +316,7 @@ try {
   check(pageErrors.length === 0, "no page errors", pageErrors.join("; ") || "none");
 } finally {
   await browser.close();
-  server.close();
+  close();
 }
 
 console.log(
