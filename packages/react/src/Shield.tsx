@@ -2859,15 +2859,10 @@ export function Shield(props: ShieldProps) {
         `remove ${explain !== undefined ? "explain" : "notice"}.`,
     );
   }
-  if (copyPaste !== undefined && copyPaste !== false && !usesPuzzle) {
-    throw new Error(
-      `${camo.logPrefix} <Shield> was given copyPaste with the accessible path turned off. ` +
-        `Copy mediation needs the sealed original: without it the reader can only ever be ` +
-        `handed a notice pointing at a door that does not exist, which is worse for them and ` +
-        `no obstacle at all to a crawler. Either remove screenReader={false} / ` +
-        `a11y={{ mode: "none" }}, or remove copyPaste.`,
-    );
-  }
+  // NO SECOND copyPaste GUARD HERE. There were two, with the same condition and
+  // different wording; the earlier one always fired and this one was
+  // unreachable, so its message could drift indefinitely without any test
+  // noticing — copy.test.ts asserts on the wording of the live one.
   // AN INLINE SHIELD NEVER GETS THE DRAWN WRAPPER, even now that the wrapper is
   // the default. The frame is a <div> containing <div> strips and a whole
   // paragraph of furniture; dropped inside a <p>, the parser closes the

@@ -457,8 +457,6 @@ function innerCss(F: string, attr: string): string {
     `color:currentColor;opacity:.55;}` +
     `${F} [${attr}-say-full]:focus-visible{outline:2px solid currentColor;`+
     `outline-offset:3px;border-radius:3px;opacity:.9;}` +
-    `${F} [${attr}-say-full]:focus-visible{outline:2px solid currentColor;`+
-    `outline-offset:3px;border-radius:3px;opacity:.9;}` +
     `${F} [${attr}-acts]{display:flex;align-items:center;gap:7px;flex-shrink:0;flex-wrap:wrap;}` +
     `${F} button{display:inline-flex;align-items:center;gap:7px;cursor:pointer;` +
     `border:1px solid rgba(128,128,128,.34);border-radius:999px;background:transparent;color:inherit;` +

@@ -313,7 +313,7 @@ function wire(btn){
         reveal(plain, false);
       }).catch(function(err){
         console.error(PFX + ' could not open the sealed text.', err);
-        fail('Something went wrong. You can try again.');
+        fail('Something went wrong.');
       });
     }
     function fail(msg){
