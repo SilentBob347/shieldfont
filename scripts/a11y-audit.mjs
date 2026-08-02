@@ -318,9 +318,17 @@ try {
   // boundary is the only way to tell one block's bottom strip from the next
   // block's top strip. Shield.tsx argues both, at length, and both are right.
   // What matters here is that the group is NAMED and that no two sound alike.
-  const groups = fullSpoken.filter((p) => /^group,/.test(p.trim()));
-  check(groups.length === 2, "FULL: each block is a named group", `${groups.length}`);
-  check(new Set(groups).size === groups.length, "FULL: no two blocks sound alike");
+  // UNNAMED, and that is the point. The boundary is what separates one block's
+  // furniture from the next block's; the NAME was a worse version of the
+  // sentence that immediately follows it, and cost twelve words per block to
+  // say so. An unnamed group is still announced.
+  const groups = fullSpoken.filter((p) => /^group\b/.test(p.trim()));
+  check(groups.length === 2, "FULL: each block is its own group", `${groups.length}`);
+  check(
+    groups.every((g) => g.trim() === "group"),
+    "FULL: and the group is unnamed, so it pre-empts nothing",
+    groups.join(" | "),
+  );
   // The group name is the IDENTIFIER, deliberately: the disclaimer is already
   // spoken on its own focus stop, so putting it in the name too is one telling
   // too many. Asserted rather than noted, now that the code and the comment

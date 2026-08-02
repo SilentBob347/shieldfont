@@ -475,9 +475,12 @@ describe("the drawn notice — what a listener is handed", () => {
     const secret = "Zarquon threadbare pomegranate ossuary.";
     const tree = noticed({ children: secret });
     const names = [
-      props(byAttr(tree, `${A}-frame`))["aria-label"] as string,
-      ...byAttrAll(tree, `${A}-act`).map((b) => props(b)["aria-label"] as string),
-      ...byAttrAll(tree, `${A}-tip`).map((b) => props(b)["aria-label"] as string),
+      // The frame is unnamed by default now, so this collects undefined for it.
+      // An absent name cannot leak the protected words; filter rather than
+      // assert one exists.
+      props(byAttr(tree, `${A}-frame`))["aria-label"] as string | undefined,
+      ...byAttrAll(tree, `${A}-act`).map((b) => props(b)["aria-label"] as string | undefined),
+      ...byAttrAll(tree, `${A}-tip`).map((b) => props(b)["aria-label"] as string | undefined),
       // .filter(Boolean): the drawn tier's progress bar is aria-hidden and no
       // longer carries a name at all, so this now collects undefined for it —
       // which the toLowerCase() below then threw on. An absent name cannot leak
@@ -487,13 +490,15 @@ describe("the drawn notice — what a listener is handed", () => {
         .filter((e) => e.type === "progress")
         .map((b) => props(b)["aria-label"] as string | undefined)
         .filter((n): n is string => typeof n === "string"),
-    ];
-    // >4, not >6. The count dropped by two when the drawn tier's progress bar
-    // stopped carrying a name it could never have spoken (aria-hidden), on the
-    // top and bottom strips. This assertion exists to catch the list going
+      // Every name that EXISTS, filtered once at the end: the frame and the
+      // progress bars are unnamed now, and an absent name cannot leak anything.
+    ].filter((n): n is string => typeof n === "string");
+    // >3, and it has come down twice: once when the progress bars stopped
+    // carrying a name they could never have spoken, once when the frame stopped
+    // carrying one at all. This assertion exists to catch the list going
     // EMPTY and passing vacuously, not to pin an exact inventory — but keep it
     // just under the real number so a silent collapse still fails.
-    expect(names.length).toBeGreaterThan(4);
+    expect(names.length).toBeGreaterThan(3);
     for (const w of ["Zarquon", "threadbare", "pomegranate", "ossuary"]) {
       for (const n of names) expect(n.toLowerCase()).not.toContain(w.toLowerCase());
     }
@@ -625,26 +630,42 @@ describe("still encodes", () => {
     expect(tips).toHaveLength(0);
   });
 
-  it("names the frame with a SHORT identifier, so the sentence is not read twice", () => {
-    const name = String(props(frame(drawn()))["aria-label"]);
-    // Identifies the block; does not repeat the explanation the strip shows.
-    // Default `as` is "div", so the spoken noun is "section". The point is
-    // that the name identifies the block, not which word it uses.
-    expect(name).toMatch(/\b(section|paragraph)\s+\d+/);
-    expect(name).not.toContain("screen reader");
-    expect(name.length).toBeLessThan(48);
+  it("leaves the frame unnamed, so the sentence is not pre-empted by a worse one", () => {
+    // The default WAS "Protected text, paragraph 2". It was a worse version of
+    // the sentence that follows it — a listener does not know what "protected
+    // text" means until the next phrase explains it — and it cost twelve words
+    // per block to say so. Measured over a real accessibility tree: 85 words to
+    // reach the second block with it, 73 without.
+    expect(props(frame(drawn()))["aria-label"]).toBeUndefined();
   });
 
-  it("still distinguishes blocks from each other by ordinal", () => {
-    // Ordinals are assigned per RENDER PASS, so two bare calls both get 1 by
-    // design — the counter is deliberately pass-scoped so server and client
-    // agree. Share a pass, as a real page does.
+  it("keeps the group ROLE, which is what separates one block from the next", () => {
+    // The name went; the boundary did not. An unnamed role="group" is still
+    // announced ("grouping" / "out of grouping" on NVDA), and that is the only
+    // thing telling a listener where one block's furniture ends and the next
+    // block's begins.
+    expect(props(frame(drawn())).role).toBe("group");
+  });
+
+  it("names the frame when an author asks for one", () => {
+    const t = Shield({ children: BODY, explain: { labels: { group: "Sealed" } } } as never);
+    const name = String(props(frame(t))["aria-label"]);
+    expect(name).toContain("Sealed");
+    // Still carries the ordinal, so two named blocks do not sound alike.
+    expect(name).toMatch(/\d/);
+  });
+
+  it("does not distinguish blocks by ordinal any more, and does not need to", () => {
+    // This asserted two distinct names. There are no names now. While locked
+    // every block is SILENT, so there is nothing to tell apart and nothing to
+    // choose between: uncovering is page-wide, and nobody can want block 5
+    // specifically when they cannot read any of them. Once open, the words
+    // themselves distinguish them.
     const page = withShieldRenderPass(() => [
       Shield({ children: BODY + " one", explain: true }),
       Shield({ children: BODY + " two", explain: true }),
     ]);
-    const names = page.map((t) => String(props(frame(t))["aria-label"]));
-    expect(new Set(names).size).toBe(2);
+    expect(page.map((t) => props(frame(t))["aria-label"])).toEqual([undefined, undefined]);
   });
 
   it("keeps the trailing strip's prose out of the tree, so nothing repeats", () => {

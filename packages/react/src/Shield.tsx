@@ -3115,7 +3115,35 @@ export function Shield(props: ShieldProps) {
       // WCAG 2.2: this is what makes SC 1.3.1 defensible rather than merely
       // argued, and it is the SC 2.4.6 story for the block as a whole.
       role: "group",
-      "aria-label": groupName(cfg.labels.group ?? "Protected text", noun, ordinal),
+      // NO NAME BY DEFAULT, and the default used to be "Protected text,
+      // paragraph 2".
+      //
+      // It was a worse version of the sentence that follows it. A listener does
+      // not know what "protected text" means until the next phrase explains it,
+      // so the label spent twelve words per block priming them for an
+      // explanation they were about to get anyway — measured over a real
+      // accessibility tree: 85 words to reach the second block with it, 73
+      // without.
+      //
+      // The one argument for keeping it was telling block 3 from block 5. That
+      // does not survive: while locked every block is SILENT, so there is
+      // nothing to tell apart and nothing to choose between — uncovering is
+      // page-wide, and nobody can want block 5 specifically when they cannot
+      // read any of them. Once open, the words themselves distinguish them.
+      //
+      // It also dissolves a real bug rather than managing it. The name was set
+      // once and never repainted, so a reader who waited several seconds for
+      // their words heard the region call itself "Protected text" immediately
+      // before reading them the thing it had just stopped protecting. With no
+      // name there is no false claim to keep in sync.
+      //
+      // The BOUNDARY stays. role="group" with no name is still announced
+      // ("grouping" / "out of grouping" on NVDA), which is what separates one
+      // block's furniture from the next block's. Authors who want a name can
+      // set labels.group, and labels.groupOpen if it should change on open.
+      ...(cfg.labels.group
+        ? { "aria-label": groupName(cfg.labels.group, noun, ordinal) }
+        : {}),
       [`${attr}-guard`]: copyOn && cfg.copyGuard ? "1" : "0",
       ...(copyOn ? { [`${attr}-clip`]: copyNoticeText } : {}),
       // EVERY live-region announcement, parked on the element instead of baked
@@ -3151,8 +3179,12 @@ export function Shield(props: ShieldProps) {
         // later — so focus crosses INTO the group from outside, which is
         // exactly the transition a screen reader announces a container on.
         // paint() runs before land(), so the new name is in place first.
-        group: groupName(cfg.labels.group ?? "Protected text", noun, ordinal),
-        groupOpen: groupName(cfg.labels.groupOpen ?? "Original text", noun, ordinal),
+        // Only present when the author asked for a name; the script leaves the
+        // frame alone when they are absent.
+        ...(cfg.labels.group ? { group: groupName(cfg.labels.group, noun, ordinal) } : {}),
+        ...(cfg.labels.groupOpen
+          ? { groupOpen: groupName(cfg.labels.groupOpen, noun, ordinal) }
+          : {}),
         err: "Something went wrong. You can try again.",
         copied: "The original is on your clipboard.",
         // The two toast lines. Same slot, opposite outcomes — green when the

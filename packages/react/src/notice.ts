@@ -269,8 +269,8 @@ export interface ResolvedNotice {
     copy: string;
     restore: string;
     info: string;
-    group: string;
-    groupOpen: string;
+    group?: string;
+    groupOpen?: string;
     progress: string;
     gist: string;
     showLong: string;
@@ -366,8 +366,8 @@ export function resolveNotice(n: ShieldNotice | true): ResolvedNotice {
       // Defaults to the full explanation, so an author who translates `text`
       // gets a translated group name for free and never has to discover that
       // the frame had a second, separate string to override.
-      group: l.group ?? "Protected text",
-      groupOpen: l.groupOpen ?? "Original text",
+      group: l.group,
+      groupOpen: l.groupOpen ?? l.group,
       progress: l.progress ?? "Decoding progress",
     },
     copyGuard: cfg.copyGuard ?? true,
