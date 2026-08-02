@@ -80,19 +80,28 @@ export interface NoticeNames {
  */
 export interface ShieldNotice {
   /**
-   * The SHORT sentence, drawn in the strip. Keep it to one line — it sits
-   * beside two buttons and wraps badly past about ten words.
+   * DEAD SINCE THE STRIP TOOK THE WHOLE SENTENCE. This was an abridged line
+   * drawn in the bar, with the full explanation behind an info button. Both
+   * the teaser and the button are gone — the strip carries {@link text} in
+   * full, on its own focus stop, because an abridged sentence plus a
+   * disclosure is two things to find where one is needed.
    *
-   * Do NOT put the protected words in it. The strip ships in the HTML, so a
-   * sentence quoting the text hands it to any scraper for free.
+   * Kept in the type so an author who sets it does not get a build error. It
+   * is filled in by resolveNotice and read by nothing.
+   *
+   * @deprecated Nothing reads this. Use {@link text}.
    */
   short?: string;
 
   /**
-   * The FULL explanation. THREE jobs now, and it must read well doing all of
-   * them: it is what the info button reveals, it is what the clipped copy
-   * carries, and — since the disclaimer moved to where assistive technology
-   * actually meets it — it is the default ACCESSIBLE NAME of the whole frame.
+   * THE sentence. It is drawn in the strip and it is what a screen reader is
+   * handed, because the strip's sentence is a `role="note"` and its own focus
+   * stop — one string, one place, read once.
+   *
+   * This comment used to claim three jobs: the info button's disclosure, a
+   * clipped second copy, and the frame's accessible name. None of the three
+   * survive — there is no info button, no clipped copy, and the frame is named
+   * by {@link ShieldNotice.labels.group}.
    *
    * That last job is the one to write for. A `role="group"` announces its name
    * when a listener enters it, so this sentence is now the first thing said
@@ -642,13 +651,19 @@ export function noticeCss(attr: string): string {
   return (
     innerCss(F, attr) +
     // The outline and its failed-state colour come from innerCss, which both
-    // tiers share. Only the STRIP is the frame's own — a filled band with a
-    // hairline between it and the prose, which is the whole difference between
-    // a wrapper and a control sitting beside the text.
-    `${F} [${attr}-strip]{background:rgba(128,128,128,.08);}` +
-    `${F} [${attr}-strip="top"]{border-bottom:1px solid rgba(128,128,128,.18);border-radius:11px 11px 0 0;}` +
-    `${F} [${attr}-strip="bottom"]{border-top:1px solid rgba(128,128,128,.18);border-radius:0 0 11px 11px;}` +
-    `${F}[${attr}-failed] [${attr}-strip]{background:rgba(184,121,31,.12);}`
+    // tiers share. NOTHING IS ADDED HERE ANY MORE.
+    //
+    // Four strip rules used to be re-emitted at this point — the fill, the two
+    // border radii, the failed-state tint — with a comment claiming they were
+    // "the frame's own". They are byte-identical to the ones innerCss already
+    // wrote a hundred lines up, so every page using the wrapper shipped both
+    // copies and the later one won by being later. A rule that only works
+    // because it is duplicated is a rule nobody can safely edit.
+    //
+    // The strip selector genuinely does only match inside a frame — the clipped
+    // tier renders no `-strip` element at all — so innerCss is the right home
+    // for it and this function has nothing left to say.
+    ""
   );
 }
 

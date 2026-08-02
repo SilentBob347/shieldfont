@@ -85,7 +85,7 @@ combinations, not an enum.
 | | FULL | INVISIBLE | MINIMAL | SEALED SHUT |
 |---|---|---|---|---|
 | **On screen** | An outline and a strip. | Nothing. | Nothing. | Nothing. |
-| **Markup, one block** | 48 elements, 6.8 kB | 8 elements, 2.3 kB | 8 elements, 2.3 kB | 1 element, 274 bytes |
+| **Markup, one block** | 30 elements, 5.1 kB | 17 elements, 3.5 kB | 17 elements, 3.3 kB | 1 element, 247 bytes |
 | **Matchable English** | The whole sentence, the button words, the clipboard notice. | The note and the button name (`"scrambled"`, `"Uncover the plain text"`), plus the clipboard notice. | The note and the button name. | **None.** Nothing a crawler can pattern-match on. |
 | **Copy & paste** | A selection touching protected text lands a short notice saying how to get the real words. | Same. | **Decoy words, silently.** The reader pastes fluent nonsense into their notes and finds out later, or never. | Decoy words, silently. |
 | **WCAG 2.2** | Passes. | Passes. | Passes. | **Fails SC 1.3.1** — what a sighted reader perceives is not programmatically available. Under the EU Accessibility Act or the ADA Title II web rule that is a procurement blocker, not an ethics question. |

@@ -4,7 +4,6 @@ import * as React from "react";
 import { solverScript } from "./solver.js";
 import {
   altCss,
-  DEFAULT_BROKEN,
   DEFAULT_TEXT,
   ICONS,
   clipboardNotice,
@@ -374,8 +373,8 @@ export interface ShieldProps {
    * relative and the exact figures are worth having. Measured on one block,
    * markup only, excluding the page-level font CSS and scripts:
    *
-   *   screenReader:false   1 element,    274 bytes,  no identifying strings
-   *   screenReader:true    8 elements,  2260 bytes,  "Scrambled", "Uncover",
+   *   screenReader:false   1 element,    247 bytes,  no identifying strings
+   *   screenReader:true   17 elements,  3537 bytes,  "Scrambled", "Uncover",
    *                                                  "the original text"
    *
    * So it is NOT signature-free, and an earlier version of this comment
@@ -417,12 +416,20 @@ export interface ShieldProps {
    *
    * The size of the loss, measured on one block, markup only:
    *
-   *   screenReader only       8 elements,  2260 bytes
-   *   explain position:"top" 48 elements,  6816 bytes
-   *   explain position:"both" 82 elements, 10138 bytes
+   *   screenReader only      17 elements,  3537 bytes
+   *   explain position:"top" 30 elements,  5128 bytes
+   *   explain position:"both" 55 elements, 7685 bytes
    *
-   * The second strip is 34 elements and 3.3 kB of that, and it duplicates every
+   * The second strip is 25 elements and 2.6 kB of that, and it duplicates every
    * control and every sentence. On a short block prefer `"top"`.
+   *
+   * MEASURE AGAIN BEFORE QUOTING THESE. Every figure above was wrong until
+   * 0.3.2 — wrong in BOTH directions, by up to 55% — because they were written
+   * once and then argued from for two releases while the markup moved under
+   * them. Reproduce with: render one block, strip the page-level <style> and
+   * <script> (those are per page, not per block), keep the sealed JSON, count
+   * `<tag` openings and bytes. A number nobody can reproduce is worse than no
+   * number in a file that argues from numbers.
    *
    * Two things soften it and neither eliminates it: the wording is yours to
    * change ({@link ShieldNotice.short}/{@link ShieldNotice.text}), and a wrapper
@@ -1161,7 +1168,6 @@ function fontGuardScript(
   host: string,
   seedWeight: number | null,
   variant: ShieldVariant,
-  fallbackText: string,
 ): string {
   const flag = camo.guardFlag;
   const attr = camo.attrName;
@@ -1186,7 +1192,6 @@ var ALT    = '[' + ATTR + '-group]';
 var PFX    = ${JSON.stringify(prefix)};
 var SEED   = ${seedWeight === null ? "null" : String(seedWeight)};
 var TIMEOUT_MS = 4000;
-var FALLBACK = ${JSON.stringify(fallbackText)};
 // The sentence the STRIP shows and the name the BLOCK carries are not the same
 // string, and used to be. The strip sits above the words, so "the text below"
 // points at them correctly; the block IS the words, so on the block the same
@@ -2165,7 +2170,7 @@ function ActionButton({
  * sentence's height in every state, and pressing the button cannot move the
  * page under the reader.
  */
-function LoadingRow({ attr, name, lead }: { attr: string; name: string; lead: boolean }) {
+function LoadingRow({ attr, lead }: { attr: string; lead: boolean }) {
   return (
     <span
       hidden
@@ -2177,7 +2182,16 @@ function LoadingRow({ attr, name, lead }: { attr: string; name: string; lead: bo
         this is driven ~200 times across the wait; the spoken estimate carries
         the same information without the tones.
       */}
-      <progress max={100} value={0} aria-hidden="true" aria-label={name} />
+      {/*
+        NO aria-label. The bar is aria-hidden on the line above, so a name on
+        it is a string nothing can ever read — and it was not a short one:
+        "Decoding progress, protected from AI bots", once per block, in the
+        HTML. That is the most expensive kind of dead code this package ships,
+        because setCamouflage() renames the attribute around a sentence and can
+        never touch the sentence. `labels.progress` still exists and still
+        names the clipped tier's bar, which is not aria-hidden.
+      */}
+      <progress max={100} value={0} aria-hidden="true" />
       <span {...({ [`${attr}-est`]: "" } as Record<string, string>)}>Loading text…</span>
     </span>
   );
@@ -2223,7 +2237,6 @@ function LoadingRow({ attr, name, lead }: { attr: string; name: string; lead: bo
 function NoticeStrip({
   where,
   firstOnPage,
-  sayId,
   attr,
   notice,
   ordinal,
@@ -2232,8 +2245,6 @@ function NoticeStrip({
   where: "top" | "bottom";
   /** True only for the lead strip of the FIRST notice on the page. */
   firstOnPage: boolean;
-  /** id of the sentence, so the controls can point their description at it. */
-  sayId: string;
   attr: string;
   notice: ReturnType<typeof resolveNotice>;
   ordinal: number;
@@ -2331,12 +2342,7 @@ function NoticeStrip({
           state this is, and the live region announces the transition, so a
           third telling is noise to the reader who needs the first two.
         */}
-        <span aria-hidden="true" {...({ [`${attr}-icon`]: "on" } as Record<string, string>)}>
-          <Icon d={ICONS.shield} />
-        </span>
-        <span hidden aria-hidden="true" {...({ [`${attr}-icon`]: "off" } as Record<string, string>)}>
-          <Icon d={ICONS.shieldOff} />
-        </span>
+        <StateIcons attr={attr} />
         {/*
           THE WHOLE SENTENCE, VISIBLE, IN THE BAR.
 
@@ -2358,8 +2364,13 @@ function NoticeStrip({
           node is read on entry anyway; putting the sentence in both is the
           double-announcement the maintainer asked us to stop.
         */}
+        {/*
+          NO id. It carried `${blockId}-say` so "the controls can point their
+          description at it" — nothing ever did: there is not one
+          aria-describedby in this file. An id nobody references is a byte on
+          every block and a hook the next person will assume is load-bearing.
+        */}
         <span
-          id={lead ? sayId : undefined}
           {...(lead
             ? { tabIndex: 0, role: "note" as const }
             : { "aria-hidden": "true" as const })}
@@ -2379,44 +2390,7 @@ function NoticeStrip({
           toast is: the sentence keeps its height while the bar covers it, so
           pressing the button cannot move the row under the reader's cursor.
         */}
-        <span
-          hidden
-          {...({ [`${attr}-prog`]: "" } as Record<string, string>)}
-          {...(lead ? {} : { "aria-hidden": "true" as const })}
-        >
-          {/*
-            THE PROGRESS BAR IS aria-hidden, and this reverses a decision made
-            here on purpose, so it needs the argument spelled out.
-
-            The old reasoning — "<progress> does not announce on its own, so it
-            costs a screen-reader user nothing and lets them query exact
-            progress on demand" — is true of VoiceOver, which is the only
-            screen reader this package has ever been tested with. It is not
-            true of NVDA, whose "Progress bar output" preference ships set to
-            "Beep": NVDA plays a rising tone on every reported value change of
-            a progress bar. This one is driven ~200 times over a wait that
-            defaults to twenty seconds. That is not a progress indicator, it is
-            twenty seconds of beeping over the top of a live region trying to
-            tell someone what is happening, and NVDA is around two thirds of
-            the screen readers in use.
-
-            What is lost is querying exact progress on demand. What replaces it
-            is the estimate beside the bar, which stays in the tree — so a
-            listener who goes looking during the wait finds "About 20 seconds"
-            in words rather than a number they would have had to poll for.
-
-            REASONED, NOT VERIFIED: nobody has run NVDA against this build. If
-            someone does and the beeping is not there, delete the aria-hidden
-            and this comment with it.
-          */}
-          <progress
-            max={100}
-            value={0}
-            aria-hidden="true"
-            aria-label={named(notice.labels.progress)}
-          />
-          <span {...({ [`${attr}-est`]: "" } as Record<string, string>)}>{cfgMeasuring}</span>
-        </span>
+        <LoadingRow attr={attr} lead={lead} />
         <span aria-hidden="true" {...({ [`${attr}-toast`]: "" } as Record<string, string>)}>
           Copied to clipboard
         </span>
@@ -3031,7 +3005,7 @@ export function Shield(props: ShieldProps) {
       role: "group",
       "aria-label": groupName(cfg.labels.group ?? "Protected text", noun, ordinal),
       [`${attr}-guard`]: copyOn && cfg.copyGuard ? "1" : "0",
-      [`${attr}-clip`]: copyNoticeText,
+      ...(copyOn ? { [`${attr}-clip`]: copyNoticeText } : {}),
       // EVERY live-region announcement, parked on the element instead of baked
       // into the emitted script. Two reasons, and the second is the one that
       // forced it: an author can translate these, and the script stays free of
@@ -3075,7 +3049,7 @@ export function Shield(props: ShieldProps) {
         {emitGuard ? (
           <script
             dangerouslySetInnerHTML={{
-              __html: fontGuardScript(family, fontHost, fontWeight ?? null, v, DEFAULT_BROKEN),
+              __html: fontGuardScript(family, fontHost, fontWeight ?? null, v),
             }}
           />
         ) : null}
@@ -3098,7 +3072,6 @@ export function Shield(props: ShieldProps) {
           <NoticeStrip
             where="top"
             firstOnPage={firstOnPage}
-            sayId={`${blockId}-say`}
             attr={attr}
             notice={cfg}
             ordinal={ordinal}
@@ -3165,7 +3138,6 @@ export function Shield(props: ShieldProps) {
             <NoticeStrip
               where="bottom"
               firstOnPage={false}
-              sayId={`${blockId}-say`}
               attr={attr}
               notice={cfg}
               ordinal={ordinal}
@@ -3194,7 +3166,7 @@ export function Shield(props: ShieldProps) {
       {emitGuard ? (
         <script
           dangerouslySetInnerHTML={{
-            __html: fontGuardScript(family, fontHost, fontWeight ?? null, v, DEFAULT_BROKEN),
+            __html: fontGuardScript(family, fontHost, fontWeight ?? null, v),
           }}
         />
       ) : null}

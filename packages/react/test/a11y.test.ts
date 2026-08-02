@@ -431,11 +431,22 @@ describe("the drawn notice — what a listener is handed", () => {
       props(byAttr(tree, `${A}-frame`))["aria-label"] as string,
       ...byAttrAll(tree, `${A}-act`).map((b) => props(b)["aria-label"] as string),
       ...byAttrAll(tree, `${A}-tip`).map((b) => props(b)["aria-label"] as string),
+      // .filter(Boolean): the drawn tier's progress bar is aria-hidden and no
+      // longer carries a name at all, so this now collects undefined for it —
+      // which the toLowerCase() below then threw on. An absent name cannot leak
+      // the protected words, so filtering is the correct reading of "every name
+      // that exists".
       ...walkDeep(tree)
         .filter((e) => e.type === "progress")
-        .map((b) => props(b)["aria-label"] as string),
+        .map((b) => props(b)["aria-label"] as string | undefined)
+        .filter((n): n is string => typeof n === "string"),
     ];
-    expect(names.length).toBeGreaterThan(6);
+    // >4, not >6. The count dropped by two when the drawn tier's progress bar
+    // stopped carrying a name it could never have spoken (aria-hidden), on the
+    // top and bottom strips. This assertion exists to catch the list going
+    // EMPTY and passing vacuously, not to pin an exact inventory — but keep it
+    // just under the real number so a silent collapse still fails.
+    expect(names.length).toBeGreaterThan(4);
     for (const w of ["Zarquon", "threadbare", "pomegranate", "ossuary"]) {
       for (const n of names) expect(n.toLowerCase()).not.toContain(w.toLowerCase());
     }
