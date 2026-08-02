@@ -17,11 +17,54 @@
  * mode.
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { Shield, type ShieldA11y } from "../src/Shield.js";
-import type { CSSProperties } from "react";
-import { descendants, findAllTags, findTag, props, shieldedBlock, walkAll } from "./helpers.js";
+import { Shield, withShieldRenderPass, type ShieldA11y } from "../src/Shield.js";
+import { DEFAULT_TEXT, copyGuardScript, noticeScript } from "../src/notice.js";
+import type { CSSProperties, ReactElement } from "react";
+import {
+  descendants,
+  findAllTags,
+  findTag,
+  props,
+  shieldedBlock,
+  walkAll,
+  walkDeep,
+} from "./helpers.js";
 
 const BODY = "The future of writing belongs to those who write it.";
+
+/** The camouflage base attribute the tests run against. */
+const A = "data-typeface";
+
+/** Every element carrying a given bare data attribute, in DOM order. */
+function byAttrAll(tree: unknown, attr: string): ReactElement[] {
+  return walkDeep(tree as never).filter((e) => attr in props(e));
+}
+
+/** The one element carrying a given bare data attribute. */
+function byAttr(tree: unknown, attr: string): ReactElement {
+  const hit = byAttrAll(tree, attr)[0];
+  if (!hit) throw new Error(`no element with ${attr}`);
+  return hit;
+}
+
+/**
+ * What assistive technology would actually be handed: everything except the
+ * subtrees cut off by `aria-hidden`.
+ *
+ * `walkAll` is the wrong tool for every assertion in the notice suite below,
+ * because half of what this component renders is deliberately NOT in the
+ * accessibility tree — icons, the visible tooltip, the toast, the whole second
+ * strip's prose. Counting rendered elements would report a duplicate that no
+ * listener hears, and would have gone on reporting a single copy of things
+ * that were being read out twice.
+ */
+function exposed(node: unknown): ReactElement[] {
+  return walkDeep(node as never, (el) => props(el)["aria-hidden"] === "true");
+}
+
+/** A block with the drawn notice, the configuration the demo ships. */
+const noticed = (over: Record<string, unknown> = {}) =>
+  Shield({ children: BODY, as: "p", explain: { position: "both" }, ...over } as never);
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -76,8 +119,8 @@ describe('mode: "audio"', () => {
     expect(note).toBeDefined();
     const text = String(props(note!).children);
     expect(text.length).toBeGreaterThan(40);
-    expect(text).toMatch(/assistive technology/i);
-    expect(text).toMatch(/audio/i);
+    expect(text).toMatch(/read aloud/i);
+    expect(text).toMatch(/listen/i);
   });
 
   it("lets `note` replace the sentence", () => {
@@ -205,6 +248,261 @@ describe("markup validity", () => {
   });
 });
 
+/**
+ * The drawn notice (`explain`), from the ear outward.
+ *
+ * Everything below was written after walking one protected block the way a
+ * screen-reader user does — linearly, then by form control — and then verified
+ * in Chromium against the live demo. The pattern in every case is the same: the
+ * markup was individually reasonable and the SEQUENCE was not.
+ */
+describe("the four tiers, and which one a bare <Shield> is", () => {
+  // These pin the DEFAULT. Nothing else in the suite does: every other test
+  // passes the switch it cares about, so the day the default moved from
+  // INVISIBLE to FULL, 22 tests failed for the right reason and none of them
+  // was actually asserting what a bare <Shield> renders. That is the assertion
+  // that matters most, because it is the one every consumer gets without
+  // asking for anything.
+  const A = "data-typeface";
+  const frames = (t: ReturnType<typeof Shield>) => byAttrAll(t, `${A}-frame`);
+  const clipped = (t: ReturnType<typeof Shield>) => byAttrAll(t, `${A}-group`);
+
+  it("FULL — a bare <Shield> draws the wrapper", () => {
+    const t = Shield({ children: BODY });
+    expect(frames(t)).toHaveLength(1);
+    // And the sentence a reader can see is really in the markup, not just an
+    // element that could have held one.
+    const said = walkDeep(t).some((e) =>
+      String(props(e).children ?? "").includes("scrambled"),
+    );
+    expect(said).toBe(true);
+  });
+
+  it("INVISIBLE — explain={false} keeps the control and drops the box", () => {
+    const t = Shield({ children: BODY, explain: false } as never);
+    expect(frames(t)).toHaveLength(0);
+    expect(clipped(t)).toHaveLength(1);
+  });
+
+  it("MINIMAL — copyPaste={false} also drops the clipboard sentence", () => {
+    const t = Shield({ children: BODY, explain: false, copyPaste: false } as never);
+    expect(frames(t)).toHaveLength(0);
+    expect(clipped(t)).toHaveLength(1);
+    expect(props(shieldedBlock(t))[`${A}-clip-say`]).toBeUndefined();
+  });
+
+  it("SEALED SHUT — screenReader={false} draws nothing and seals nothing", () => {
+    const t = Shield({ children: BODY, screenReader: false } as never);
+    expect(frames(t)).toHaveLength(0);
+    expect(clipped(t)).toHaveLength(0);
+    expect(byAttrAll(t, `${A}-data`)).toHaveLength(0);
+  });
+
+  it("SEALED SHUT does not throw on its own default", () => {
+    // `explain` defaults to on, and the guard throws when a wrapper is asked
+    // for with no seal behind it. Defaulting to `true` rather than to "on if
+    // there is a seal" made the one tier that turns the seal off throw on the
+    // props that define it. Caught by a11y-warning.test.ts at the time; pinned
+    // here because this is where the tiers are described.
+    expect(() => Shield({ children: BODY, screenReader: false } as never)).not.toThrow();
+  });
+});
+
+describe("the drawn notice — what a listener is handed", () => {
+
+
+  it("lets the group name be renamed and translated", () => {
+    // The old short shape is one prop away, and still the escape hatch for
+    // anyone who finds the disclaimer too long to hear per block.
+    const t = noticed({ explain: { labels: { group: "Texto protegido" } } });
+    expect(props(byAttr(t, `${A}-frame`))["aria-label"]).toBe("Texto protegido, paragraph 1");
+  });
+
+
+
+
+
+
+  it("states the action and the fact in every control's name", () => {
+    // Six paragraphs used to render twelve buttons named exactly "Original
+    // text" — a control list (NVDA Insert+F7, VoiceOver rotor, JAWS Insert+F5)
+    // showed a column of identical rows. The answer was a per-block ordinal.
+    //
+    // The ordinal is GONE now, and deliberately: one press uncovers every
+    // protected block on the page, so a name saying "for paragraph 2" would
+    // describe a scope the control does not have. Identical names are the
+    // correct outcome for a control that does the identical thing. What the
+    // name must still carry is the action and the fact.
+    const trees = withShieldRenderPass(() => [
+      Shield({ children: BODY, as: "h2", explain: true } as never),
+      Shield({ children: `${BODY} 2`, as: "p", explain: true } as never),
+    ]);
+    expect(byAttrAll(trees[0], `${A}-act`)).toHaveLength(2);
+    for (const t of trees) {
+      for (const b of byAttrAll(t, `${A}-act`)) {
+        const name = props(b)["aria-label"] as string;
+        expect(name).toContain("protected from AI bots");
+        expect(name).not.toMatch(/paragraph \d|heading \d/);
+      }
+    }
+    const shows = trees.flatMap((t) =>
+      byAttrAll(t, `${A}-act`)
+        .filter((b) => props(b)[`${A}-act`] === "show")
+        .map((b) => props(b)["aria-label"] as string),
+    );
+    for (const n of shows) expect(n).toContain("Uncover the original text");
+  });
+
+  it("keeps the visible label at the FRONT of the accessible name (SC 2.5.3)", () => {
+    // Label in Name. A speech-input user says "click Original text"; if the
+    // accessible name did not contain the visible words, nothing would happen.
+    const t = noticed({ explain: { labels: { show: "Ver o texto" } } });
+    for (const b of byAttrAll(t, `${A}-act`)) {
+      const label = props(b)["aria-label"] as string;
+      const span = descendants(b).find((e) => e.type === "span");
+      // SC 2.5.3 governs controls that HAVE a visible label. Copy is icon-only
+      // now — there is no visible text for a speech-input user to say, so the
+      // rule has nothing to bite on. What it must still have is a name at all,
+      // which is the icon-only failure mode worth guarding instead.
+      if (!span) {
+        expect(label.length).toBeGreaterThan(0);
+        continue;
+      }
+      expect(label.startsWith(String(props(span).children))).toBe(true);
+    }
+  });
+
+  it("hides the second strip's prose from the tree while keeping its buttons", () => {
+    // A repeated toolbar is a normal, useful pattern and both sets drive the
+    // same state, so the BUTTONS stay. It is the prose that could not be
+    // skipped past without also skipping the controls.
+    const bottom = byAttrAll(noticed(), `${A}-strip`)[1]!;
+    const heard = exposed(bottom);
+    expect(heard.filter((e) => `${A}-say-full` in props(e))).toHaveLength(0);
+    expect(heard.filter((e) => `${A}-full` in props(e))).toHaveLength(0);
+    expect(heard.filter((e) => `${A}-health` in props(e))).toHaveLength(0);
+    // Two controls per strip now, not three — Restore was removed as redundant
+    // once the words are on screen.
+    expect(heard.filter((e) => `${A}-act` in props(e))).toHaveLength(2);
+  });
+
+  it("keeps <progress> out of the tree and the spoken estimate in it", () => {
+    // Reverses a decision this package made on VoiceOver evidence. NVDA ships
+    // "Progress bar output: Beep" ON, and this bar is driven ~200 times across
+    // a wait that defaults to twenty seconds — twenty seconds of tones over the
+    // top of the live region trying to say what is happening. What replaces
+    // querying the bar is the estimate beside it, in words.
+    const tree = noticed();
+    const bars = walkDeep(tree).filter((e) => e.type === "progress");
+    expect(bars).toHaveLength(2);
+    for (const b of bars) expect(props(b)["aria-hidden"]).toBe("true");
+    expect(exposed(tree).filter((e) => `${A}-est` in props(e))).toHaveLength(1);
+  });
+
+  it("ships no font-failure paragraph at all", () => {
+    // It used to ship hidden and aria-hidden, holding a third copy of the
+    // notice sentence for a swap the script had already stopped doing. The
+    // skeleton does that job on the block itself. An element whose entire
+    // lifecycle is "render it, hide it" is markup and one plain English
+    // sentence handed to a scraper for nothing.
+    expect(byAttrAll(noticed(), `${A}-fallback`)).toHaveLength(0);
+  });
+
+  it("keeps one polite live region per block, with no landmark role", () => {
+    const status = byAttr(noticed(), `${A}-status`);
+    expect(props(status)["aria-live"]).toBe("polite");
+    expect(props(status)["aria-atomic"]).toBe("true");
+    expect(props(status).role).toBeUndefined();
+    expect(byAttrAll(noticed(), `${A}-status`)).toHaveLength(1);
+  });
+
+  it("builds none of the new names out of the words being protected", () => {
+    // Each fix above put NEW strings in the HTML — a group name, six button
+    // names, a progress label. Every one of them is an accessible name, which
+    // means it ships in the markup in clear, which means a name assembled from
+    // the text would be the same free bypass the removed href was. Asserted
+    // against the names specifically, not the whole tree: the encoded block is
+    // a separate mechanism with its own separate and openly documented
+    // coverage property (see puzzle.test.ts, "is sealed independently of how
+    // well the encoder covered the words").
+    const secret = "Zarquon threadbare pomegranate ossuary.";
+    const tree = noticed({ children: secret });
+    const names = [
+      props(byAttr(tree, `${A}-frame`))["aria-label"] as string,
+      ...byAttrAll(tree, `${A}-act`).map((b) => props(b)["aria-label"] as string),
+      ...byAttrAll(tree, `${A}-tip`).map((b) => props(b)["aria-label"] as string),
+      ...walkDeep(tree)
+        .filter((e) => e.type === "progress")
+        .map((b) => props(b)["aria-label"] as string),
+    ];
+    expect(names.length).toBeGreaterThan(6);
+    for (const w of ["Zarquon", "threadbare", "pomegranate", "ossuary"]) {
+      for (const n of names) expect(n.toLowerCase()).not.toContain(w.toLowerCase());
+    }
+  });
+});
+
+describe("the drawn notice — the emitted script", () => {
+  const js = () =>
+    noticeScript({ attr: A, flag: "f", logPrefix: "[t]", storePrefix: "p-", family: "Optik" });
+
+  it("never removes the control a reader just pressed", () => {
+    // The single worst thing in the component, and it was invisible to every
+    // markup assertion. While working, EVERY action button was set `hidden` —
+    // including the one that had just been activated — so the browser moved
+    // focus to <body> the instant a reader pressed it, and left it there for
+    // the whole five-to-twenty-second wait. Verified in Chromium before and
+    // after: activeElement went from BODY to the pressed button.
+    //
+    // The busy state is now a dim, not a removal: aria-disabled on the buttons,
+    // aria-busy on the group that holds them.
+    const s = js();
+    expect(s).toContain("aria-disabled");
+    expect(s).toContain("aria-busy");
+    // The old line, exactly as it read. Its return would restore the bug.
+    expect(s).not.toContain("if (st === 'working'){ b.hidden = true; continue; }");
+  });
+
+  it("puts focus somewhere real when a state change hides the focused button", () => {
+    // Pressing Restore hid the Restore button, which was focused, which dropped
+    // the reader on <body> — at the top of the document on any screen reader
+    // with a virtual buffer. Verified in Chromium: focus now lands on the Show
+    // button of the SAME strip the reader pressed in.
+    const s = js();
+    expect(s).toContain("Frame.prototype.hold");
+    expect(s).toContain("document.activeElement");
+  });
+
+  it("moves focus to the revealed words BEFORE announcing, not after", () => {
+    // A focus move cancels speech in flight, so the old order — announce
+    // "done", then focus — delivered the announcement to nobody on NVDA or
+    // JAWS. The delays also give a virtual buffer time to rebuild after a DOM
+    // change this size, which is the documented cause of a focus move landing
+    // on stale content.
+    expect(js()).toContain("Frame.prototype.land");
+  });
+
+  it("carries no comment and no word that names the mechanism", () => {
+    // The rule the font guard and solver.ts already follow: a project that
+    // called setCamouflage({ hash }) so its HTML shares no signature with any
+    // other ShieldFont site must not have that undone by prose in the script.
+    //
+    // This is a REGRESSION TEST for something that was already shipping: a
+    // six-line comment about progress bars and Restore buttons sat inside the
+    // emitted string, and a `gShield` local plus an `-icon="shield"` attribute
+    // value put the project's own name on every page using this mode.
+    const s = js();
+    expect(s).not.toContain("/*");
+    expect(s).not.toContain("//");
+    for (const word of [
+      "shield", "puzzle", "decoy", "scramble", "protect", "original",
+      "plaintext", "cipher", "unlock", "reveal",
+    ]) {
+      expect(s.toLowerCase()).not.toContain(word);
+    }
+  });
+});
+
 describe("still encodes", () => {
   it("leaves the shielded text encoded regardless of the a11y mode", () => {
     const tree = Shield({ children: BODY, a11y: { mode: "audio", src: "/a.mp3" } });
@@ -214,4 +512,83 @@ describe("still encodes", () => {
     // The alternative must never carry the plaintext into the HTML.
     expect(JSON.stringify(walkAll(tree))).not.toContain(BODY);
   });
+  const drawn = (extra: Record<string, unknown> = {}) =>
+    Shield({ children: BODY, explain: true, ...extra });
+  const frame = (t: ReturnType<typeof Shield>) =>
+    walkDeep(t).find((e) => Object.keys(props(e)).some((k) => k.endsWith("-frame")))!;
+
+  // ---- THE SENTENCE LIVES IN EXACTLY ONE PLACE -------------------------
+  //
+  // The design changed on the maintainer's instruction: "put the whole
+  // sentence in there, no abridged sentence hidden into an info icon
+  // anymore", plus "let's not make reader read twice in a row". So the full
+  // explanation is now VISIBLE in the lead strip, the info disclosure is
+  // gone, and the frame's accessible name is a short identifier again.
+
+  it("shows the explanation visibly, and announces it via the controls", () => {
+    const t = drawn();
+    const shown = walkDeep(t).filter((e) =>
+      Object.keys(props(e)).some((k) => k.endsWith("-say-full")),
+    );
+    // Visible in the bar for sighted readers...
+    expect(shown.length).toBeGreaterThan(0);
+    expect(String(props(shown[0]!).children)).toContain("screen reader");
+    // ...and it is a REAL TAB STOP on the lead strip. Three placements were
+    // tried before this one: a plain text node (Tab cannot reach prose), and
+    // aria-describedby (a description, which VoiceOver and NVDA both suppress
+    // at default verbosity). Only a focusable node is reliably reached and
+    // announced, so the sentence is its own stop and appears nowhere else.
+    const lead = shown[0]!;
+    expect(props(lead).tabIndex).toBe(0);
+    expect(props(lead).role).toBe("note");
+    expect(props(lead)["aria-hidden"]).toBeUndefined();
+    // The trailing copy stays hidden and unfocusable, or the reader meets the
+    // same sentence twice.
+    for (const e of shown.slice(1)) expect(props(e)["aria-hidden"]).toBe("true");
+    // And it is not ALSO carried by a control, which would announce it twice.
+    const names = walkDeep(t).map((e) => String(props(e)["aria-label"] ?? ""));
+    expect(names.some((n) => n.includes("scrambled to protect"))).toBe(false);
+  });
+
+  it("no longer renders an info disclosure at all", () => {
+    const t = drawn();
+    const tips = walkDeep(t).filter((e) =>
+      Object.keys(props(e)).some((k) => /-tip(-wrap|-panel)?$/.test(k)),
+    );
+    expect(tips).toHaveLength(0);
+  });
+
+  it("names the frame with a SHORT identifier, so the sentence is not read twice", () => {
+    const name = String(props(frame(drawn()))["aria-label"]);
+    // Identifies the block; does not repeat the explanation the strip shows.
+    // Default `as` is "div", so the spoken noun is "section". The point is
+    // that the name identifies the block, not which word it uses.
+    expect(name).toMatch(/\b(section|paragraph)\s+\d+/);
+    expect(name).not.toContain("screen reader");
+    expect(name.length).toBeLessThan(48);
+  });
+
+  it("still distinguishes blocks from each other by ordinal", () => {
+    // Ordinals are assigned per RENDER PASS, so two bare calls both get 1 by
+    // design — the counter is deliberately pass-scoped so server and client
+    // agree. Share a pass, as a real page does.
+    const page = withShieldRenderPass(() => [
+      Shield({ children: BODY + " one", explain: true }),
+      Shield({ children: BODY + " two", explain: true }),
+    ]);
+    const names = page.map((t) => String(props(frame(t))["aria-label"]));
+    expect(new Set(names).size).toBe(2);
+  });
+
+  it("keeps the trailing strip's prose out of the tree, so nothing repeats", () => {
+    const t = drawn({ explain: { position: "both" } });
+    const said = walkDeep(t).filter((e) =>
+      Object.keys(props(e)).some((k) => k.endsWith("-say-full")),
+    );
+    expect(said).toHaveLength(2);  // position:"both" explicitly, below
+    // The lead copy is a focusable note; only the trailing one is hidden.
+    expect(said.filter((e) => props(e)["aria-hidden"] === "true")).toHaveLength(1);
+    expect(said.filter((e) => props(e).tabIndex === 0)).toHaveLength(1);
+  });
+
 });

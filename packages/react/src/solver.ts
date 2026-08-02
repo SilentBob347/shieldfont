@@ -40,6 +40,18 @@
  *   substituted one, and selectable. It then moves focus to the output, because
  *   announcing "done" and leaving someone to hunt for what changed is the
  *   classic half-implementation of this pattern.
+ * - The busy state is `aria-disabled`, NEVER the `disabled` property. Setting
+ *   `disabled` on the element that currently HAS focus makes the browser move
+ *   focus to <body>, and measured here it stayed there for the whole grind —
+ *   5 to 20 seconds in which a keyboard user has lost their place and a
+ *   screen-reader user on Windows has had their virtual cursor reset to the top
+ *   of the document. The polite "working" message then arrives with nothing to
+ *   attach it to. `aria-disabled` announces the same state, keeps the control
+ *   focusable, and requires the click handler to return early — which it now
+ *   does. `fail()` also returns focus to the button, since its own message
+ *   tells the reader to try again and they need somewhere to try it from. The
+ *   drawn wrapper learned this first; this is that fix ported to the path that
+ *   ships by default.
  * - The button ships `hidden` and is revealed only once `CAPABLE` passes. A
  *   control that cannot work is worse than no control, and worst of all for a
  *   reader who cannot see that pressing it did nothing.
@@ -62,7 +74,30 @@
  *   is one update the reader never hears.
  * - localStorage is a fast path only. Every failure around it is swallowed:
  *   storage can be disabled, full, or partitioned, and none of that is a reason
- *   to deny someone their text.
+ *   to deny someone their text. It is also read AFTER the button is shown and
+ *   wired, which is load-bearing: the read used to sit above them and return
+ *   early, so a cached value that failed to open removed itself and left the
+ *   block with no button, no listener and no status for the rest of the page
+ *   view. 0.3.1 stored the PLAINTEXT under this identical key, so every
+ *   returning reader of an upgraded site hit exactly that on their first visit
+ *   — a paragraph they could not read and nothing to press. A fast path must
+ *   never be able to remove the slow one.
+ * - The page-wide broadcast SKIPS ANY BUTTON CARRYING the solve attribute, and
+ *   sets its own aria-disabled BEFORE it fans out. The clipped button now
+ *   renders through the same <ActionButton> as the drawn one, so it carries
+ *   both marks — and the broadcast loop over the drawn ones therefore matched
+ *   the pressed button itself and re-entered its own handler. One real click
+ *   started two Workers on the same chain: the whole grind budget, twice, on
+ *   the reader's device. Only HTMLElement.click()'s in-progress flag stopped it
+ *   recursing further, and a .click()-driven test cannot see it at all — it
+ *   needs a real pointer event.
+ * - ONLY THE BLOCK THE READER PRESSED TAKES FOCUS. Every block finishes at its
+ *   own time and each one used to call out.focus() unconditionally, so a
+ *   three-block page yanked the reader's place three times and left them on
+ *   whichever block finished last — not the one they asked for. On a virtual
+ *   cursor each move also cuts off the speech already in flight. The pressed
+ *   button marks itself; the ones started by the broadcast reveal silently, and
+ *   the reader can Tab to them because the revealed text is a real Tab stop.
  *
  * ## Why a Worker, and why a fallback
  *
@@ -214,25 +249,46 @@ function wire(btn){
     hide(btn);
     hide(bar);
     wrap.removeAttribute('aria-busy');
-    text(status, cached ? 'Plain text ready.' : (onScreen ? 'Done. The plain text is shown below.' : 'Done.'));
+    text(status, cached ? 'The text is ready.' : (onScreen ? 'Done. The text is shown below.' : 'Done.'));
     out.textContent = plain;
     out.setAttribute('tabindex', '0');
     show(out);
-    if (!cached) { try { out.focus(); } catch (e) {} }
+    if (!cached && btn.__own) { try { out.focus(); } catch (e) {} }
   }
-  try {
-    var hit = window.localStorage.getItem(storeKey);
-    if (hit !== null) { reveal(hit, true); return; }
-  } catch (e) {}
   if (!CAPABLE) {
     text(status, window.isSecureContext === false
-      ? 'The plain-text version needs a secure (https) connection.'
-      : 'This browser cannot decode the plain-text version.');
+      ? 'This needs a secure (https) connection.'
+      : 'This browser can’t show the full text.');
     return;
   }
   show(btn);
-  btn.addEventListener('click', function(){
-    btn.disabled = true;
+  try {
+    var hit = window.localStorage.getItem(storeKey);
+    if (hit !== null) {
+      var hexLen0 = BigInt(data.n).toString(16).length;
+      open(hit, data, hexLen0).then(function(plain){ reveal(plain, true); },
+        function(){ try { window.localStorage.removeItem(storeKey); } catch (e) {} });
+    }
+  } catch (e) {}
+  btn.addEventListener('click', function(ev){
+    if (btn.getAttribute('aria-disabled') === 'true') return;
+    btn.setAttribute('aria-disabled', 'true');
+    btn.__own = !ev || !ev.__all;
+    if (!ev || !ev.__all){
+      var peers = document.querySelectorAll('[' + SOLVE + ']');
+      for (var pi = 0; pi < peers.length; pi++){
+        var pb = peers[pi];
+        if (pb === btn || pb.hidden || pb.getAttribute('aria-disabled') === 'true') continue;
+        try { var e2 = new MouseEvent('click'); e2.__all = 1; pb.dispatchEvent(e2); } catch (e) {}
+      }
+      var drawn = document.querySelectorAll('[' + ATTR + '-act="show"]');
+      for (var di = 0; di < drawn.length; di++){
+        var db = drawn[di];
+        if (db === btn || db.hasAttribute(SOLVE)) continue;
+        if (db.hidden || db.getAttribute('aria-disabled') === 'true') continue;
+        try { db.click(); } catch (e) {}
+      }
+    }
     wrap.setAttribute('aria-busy', 'true');
     show(bar);
     if (bar) bar.value = 0;
@@ -253,19 +309,20 @@ function wire(btn){
     }
     function finish(hex){
       open(hex, data, hexLen).then(function(plain){
-        try { window.localStorage.setItem(storeKey, plain); } catch (e) {}
+        try { window.localStorage.setItem(storeKey, hex); } catch (e) {}
         reveal(plain, false);
       }).catch(function(err){
         console.error(PFX + ' could not open the sealed text.', err);
-        fail('Something went wrong decoding the text.');
+        fail('Something went wrong. You can try again.');
       });
     }
     function fail(msg){
       wrap.removeAttribute('aria-busy');
       hide(bar);
-      btn.disabled = false;
+      btn.removeAttribute('aria-disabled');
       show(btn);
       text(status, msg + ' You can try again.');
+      try { btn.focus(); } catch (e) {}
     }
     function chunked(){
       var n = BigInt(data.n), t = data.t, x = 2n, i = 0, SLICE = 4000;

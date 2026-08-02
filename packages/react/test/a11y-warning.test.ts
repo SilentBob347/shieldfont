@@ -1,5 +1,11 @@
 /**
- * The dev-time warning for an omitted `a11y` prop.
+ * The dev-time warning for turning the accessible alternative OFF.
+ *
+ * It used to fire for an OMITTED `a11y` prop, because the alternative was
+ * opt-in and silence was the default. `screenReader` now defaults to true, so
+ * omitting everything produces an accessible block and there is nothing to
+ * warn about — the warning moved to the one remaining way to end up with an
+ * aria-hidden block and no alternative, which is asking for it.
  *
  * Lives in its own file, and re-imports the module per test, because the
  * "once per process" latch is module-scoped: any other test that renders a
@@ -21,16 +27,17 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe("omitting a11y", () => {
+describe("opting out of the accessible alternative", () => {
   it("warns once per process, not once per block", async () => {
     const Shield = await freshShield();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    for (let i = 0; i < 25; i++) Shield({ children: `${BODY} ${i}` });
+    for (let i = 0; i < 25; i++)
+      Shield({ children: `${BODY} ${i}`, screenReader: false });
 
     expect(warn).toHaveBeenCalledTimes(1);
     const message = String(warn.mock.calls[0]?.[0]);
-    expect(message).toContain("a11y");
+    expect(message).toContain("screenReader");
     expect(message).toMatch(/aria-hidden/);
     expect(message).toMatch(/WCAG/);
     // It must point at the fix, including the explicit opt-out...
@@ -49,11 +56,35 @@ describe("omitting a11y", () => {
     expect(message).not.toMatch(/plain-text (copy|version|URL)/i);
   });
 
-  it("does not warn when a11y IS supplied, in any mode", async () => {
+  it("does not warn on the DEFAULT — the block is accessible without asking", async () => {
+    const Shield = await freshShield();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    Shield({ children: BODY });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("seals the original by default, with no a11y prop at all", async () => {
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const Shield = await freshShield();
+    const html = renderToStaticMarkup(Shield({ children: BODY }) as never);
+    // A sealed payload is present, and the plaintext is not.
+    expect(html).toMatch(/type="application\/json"/);
+    expect(html).not.toContain("belongs");
+  });
+
+  it("warns for a11y={{ mode: \"none\" }} too — it is the other way to opt out", async () => {
+    const Shield = await freshShield();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    Shield({ children: BODY, a11y: { mode: "none" } });
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not warn when the alternative is present, in any mode", async () => {
     const Shield = await freshShield();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    Shield({ children: BODY, a11y: { mode: "none" } });
+    // `mode: "none"` is deliberately NOT in this list any more — it is an
+    // opt-out, and the test above asserts it warns.
     Shield({ children: BODY, a11y: { mode: "audio", src: "/a.mp3" } });
     Shield({ children: BODY, a11y: { mode: "audio", src: "/a.mp3", note: "Listen." } });
     Shield({ children: BODY, a11y: { mode: "text" } });

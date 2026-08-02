@@ -184,7 +184,15 @@ describe("the guard probes the weights the page uses, not weight 400", () => {
 });
 
 describe("a failed non-400 face fails as loudly as a failed 400 face", () => {
-  const blanked = "Content unavailable — the font failed to load.";
+  // The guard now shows the SAME sentence the notice does, rather than a
+  // dead-end "Content unavailable". A reader who hits a bad deploy gets an
+  // explanation and, on the tiers that draw one, a working control — not a
+  // blanked paragraph with nowhere to go.
+  // NOT DEFAULT_BROKEN. That is the sentence the STRIP shows, above the words,
+  // where "the text below" points at them. This is the name put on the BLOCK
+  // itself, which is the words — so it has to be self-referential, and it must
+  // not name an Uncover button that the wrapperless tiers do not have.
+  const blanked = "This text isn't showing correctly.";
 
   it("fails when the bold face rejects (404 on optik-a-700.woff2)", async () => {
     const tree = Shield({ children: BODY, variant: "alpha", weight: "bold", a11y: OFF });
@@ -197,13 +205,13 @@ describe("a failed non-400 face fails as loudly as a failed 400 face", () => {
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('Font "Optik" failed to load');
     expect(sheets).toHaveLength(1);
-    expect(sheets[0]).toContain(JSON.stringify(blanked));
-    expect(sheets[0]).toContain('[data-typeface="alpha"]::before');
+    expect(els[0]!.attrs['aria-label']).toBe(blanked);
+    expect(sheets[0]).toContain('color:transparent!important');
     expect(els[0]!.attrs["data-typeface-failed"]).toBe("1");
     expect(els[0]!.attrs["aria-label"]).toBe(blanked);
   });
 
-  it("blanks with a stylesheet and leaves the decoy text node alone", async () => {
+  it("masks with a stylesheet and leaves the decoy text node alone", async () => {
     // The DOM rewrite this replaced did not survive hydration: React found
     // text it had not rendered, threw hydration error #418, and restored the
     // decoy — a guard that logs a failure the reader never sees. Verified in
@@ -216,8 +224,13 @@ describe("a failed non-400 face fails as loudly as a failed 400 face", () => {
       },
     });
     expect(els[0]!.textContent).toBe("sfvw hjqrz");
-    // Hidden by CSS instead, which reconciliation has no opinion about.
-    expect(sheets[0]).toContain("font-size:0!important");
+    // Masked by CSS instead, which reconciliation has no opinion about. The
+    // text node is deliberately untouched: rewriting it is what broke under
+    // hydration, and it is also what makes the skeleton possible — the block
+    // keeps the exact height its real lines occupied, because the real lines
+    // are still there, just painted out.
+    expect(sheets[0]).toContain("color:transparent!important");
+    expect(sheets[0]).toContain("background-repeat:repeat-y");
   });
 
   it("fails when the bold face resolves but is parked in status 'error'", async () => {

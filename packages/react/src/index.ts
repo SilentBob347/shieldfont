@@ -64,6 +64,12 @@ export type {
   RotateConfig,
   ShieldA11y,
 } from "./Shield.js";
+// The drawn reader notice — the visible surface of a11y={{ mode: "text" }}.
+// DEFAULT_SHORT / DEFAULT_TEXT are exported so a site can translate the
+// shipped wording rather than invent its own, and so a test can assert what
+// a page says without hardcoding the sentence twice.
+export { DEFAULT_SHORT, DEFAULT_TEXT } from "./notice.js";
+export type { ShieldNotice } from "./notice.js";
 
 // Re-exported from @shieldfont/core so a React consumer can check which encoder
 // they are running at runtime:

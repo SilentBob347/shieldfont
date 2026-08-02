@@ -84,7 +84,7 @@ const stubPuzzle = {
   },
 };
 
-const ENTRY = `
+const ENTRY_TEMPLATE = `
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server.browser";
 import { hydrateRoot } from "react-dom/client";
@@ -103,7 +103,12 @@ if (document.readyState !== "complete") {
 
 const el = React.createElement(
   Shield,
-  { as: "p", a11y: { mode: "text", seconds: 5, reveal: window.__REVEAL__ } },
+  // explain:false — the INVISIBLE tier, which is what this audit is about.
+  // The race it exercises is the SOLVER's: cached text written into the DOM
+  // before hydrateRoot runs. Since 0.3.2 a bare <Shield> draws the FULL
+  // wrapper, whose browser half is a different script with a different reveal
+  // path, so the fixture quietly stopped rendering the thing under test.
+  { as: "p", explain: false, a11y: { mode: "text", seconds: 5, reveal: window.__REVEAL__ } },
   ${JSON.stringify(TEXT)},
 );
 
@@ -114,7 +119,7 @@ root.innerHTML = renderToStaticMarkup(el);
 // derives its key from the camouflage attribute plus the first 40 characters
 // of the ciphertext.
 const data = JSON.parse(root.querySelector('script[type="application/json"]').textContent);
-localStorage.setItem("data-typeface-" + data.ct.slice(0, 40), ${JSON.stringify(PLAIN)});
+localStorage.setItem("data-typeface-" + data.ct.slice(0, 40), ${JSON.stringify("__ANSWER__")});
 
 // The real emitted solver, run at the moment a parser would reach it.
 const solver = [...root.querySelectorAll("script:not([type])")]
@@ -139,8 +144,27 @@ setTimeout(() => { probe.after = read(); probe.done = true; }, 500);
 `;
 
 const sealed = sealText(TEXT, { seconds: 5 });
+
+/* THE CACHE HOLDS THE PUZZLE'S ANSWER, NOT THE TEXT.
+   This audit used to seed localStorage with the plaintext, which is what the
+   solver stored until 0.3.2 — it caches the answer hex now and decrypts on
+   arrival, so that a browser that has "unlocked" a block is holding a number
+   rather than somebody's article. A seeded plaintext no longer opens, the
+   solver discards it as corrupt, and the audit reported "the race was not
+   exercised" — correctly, and for a reason two layers away from what it prints.
+
+   Computed here rather than by driving a real solve, so the audit stays a
+   single page load: same sequential squaring the browser does, same canonical
+   fixed-width hex the key derivation expects. ~1.25M squarings at seconds:5,
+   which is a second or two in Node. */
+const answerHex = (() => {
+  const n = BigInt(sealed.n);
+  let x = 2n;
+  for (let i = 0; i < sealed.t; i++) x = (x * x) % n;
+  return x.toString(16).padStart(n.toString(16).length, "0");
+})();
 const bundle = await build({
-  stdin: { contents: ENTRY, resolveDir: process.cwd(), loader: "js" },
+  stdin: { contents: ENTRY_TEMPLATE.replace("__ANSWER__", answerHex), resolveDir: process.cwd(), loader: "js" },
   bundle: true,
   format: "esm",
   write: false,
@@ -184,13 +208,25 @@ for (const reveal of ["hidden", "visible"]) {
 
   const label = `reveal="${reveal}"`;
 
-  // The self-check first: if the cached text was not already on the page before
-  // React ran, the race never happened and everything below is meaningless.
-  if (p.before.out !== PLAIN) {
+  // THE SELF-CHECK, INVERTED IN 0.3.2 — and the inversion IS the new race.
+  //
+  // This used to require the cached text to be on the page BEFORE hydrateRoot.
+  // That was right while localStorage held the plaintext: the solver read it
+  // and wrote it straight in, synchronously, so React hydrated over content
+  // that was already there. The cache now holds the puzzle's ANSWER — a number,
+  // not somebody's article — so opening it goes through crypto.subtle and lands
+  // a tick or two later, AFTER React has hydrated.
+  //
+  // So the danger moved rather than going away. React now hydrates an EMPTY
+  // output node and the decrypt writes into it afterwards, which is the exact
+  // thing renderPuzzle's empty dangerouslySetInnerHTML exists to survive: React
+  // must not own that subtree, or the next render deletes the words a reader
+  // waited for. That is what is asserted below.
+  if (p.before.out !== "") {
     failures.push(
-      `${label}: the audit did not exercise the race — the solver had not revealed ` +
-        `the cached text before hydration (saw ${JSON.stringify(p.before.out)}). ` +
-        `This is a broken audit, not a passing one.`,
+      `${label}: the audit did not exercise the race — the output already had ` +
+        `content before hydration (saw ${JSON.stringify(p.before.out)}), so React ` +
+        `never hydrated over an empty node and the assertions below prove nothing.`,
     );
     continue;
   }
@@ -204,14 +240,18 @@ for (const reveal of ["hidden", "visible"]) {
     );
   }
   if (pageErrors.length > 0) failures.push(`${label}: page error(s): ${pageErrors.join("; ")}`);
-  if (p.after.out !== PLAIN) {
+  // TEXT, not PLAIN. The fixture seals TEXT and the answer decrypts to it; PLAIN
+  // was the string this audit used to SEED the cache with back when the cache
+  // held plaintext, and asserting on it survived the change to answer-caching as
+  // a comparison that could never be true whatever the component did.
+  if (p.after.out !== TEXT) {
     failures.push(
       `${label}: the unlocked text did not survive hydration ` +
-        `(saw ${JSON.stringify(p.after.out)}, wanted ${JSON.stringify(PLAIN)}).`,
+        `(saw ${JSON.stringify(p.after.out)}, wanted ${JSON.stringify(TEXT)}).`,
     );
   }
   if (failures.length === 0 || !failures.some((f) => f.startsWith(label))) {
-    console.log(`✓ ${label}: cached text revealed pre-hydration, survived, no React errors`);
+    console.log(`✓ ${label}: decrypt landed after hydration, survived, no React errors`);
   }
 }
 

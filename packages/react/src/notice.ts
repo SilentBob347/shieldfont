@@ -1,0 +1,1171 @@
+/**
+ * The reader-facing notice — the visible half of the accessible plain-text path.
+ *
+ * ## Why this exists
+ *
+ * `a11y={{ mode: "text" }}` shipped in 0.3.0 with its control CLIPPED by
+ * default (`visualHidden` defaults to `true`), on the reasoning that a sighted
+ * reader can already read the block through the font, so an on-screen widget
+ * would be attached to text that looks fine to them.
+ *
+ * Issue #2 killed that reasoning. A reader wrote in to say they use "an
+ * assistive technology called copy-paste" — they can read the page, but not
+ * comfortably, and their fix is to select the text and move it somewhere
+ * legible. Shielded text defeats that, and the control that would have helped
+ * them was drawn one pixel wide off the side of the screen. A control that
+ * exists only in the accessibility tree serves screen-reader users and nobody
+ * else, and screen-reader users are not the only people who need the words.
+ *
+ * So the notice is DRAWN. It is furniture: an outline enclosing the protected
+ * text with a strip at the top (and optionally the bottom), carrying one short
+ * sentence and two buttons.
+ *
+ * ## The three things this gets right that a bare button did not
+ *
+ * 1. **The box encloses the text.** A strip floating above a paragraph reads as
+ *    "here is a notice". A strip on the edge of a box that CONTAINS the
+ *    paragraph reads as "everything in here behaves differently, and this is
+ *    the control for it". The second needs no explaining. It is also the only
+ *    version where a font-load failure has somewhere to go: the outline itself
+ *    turns amber, so the thing that changes is the thing enclosing the bad text.
+ *
+ * 2. **The full explanation is in the accessibility tree permanently**, not
+ *    only when the tooltip is open. A disclosure nobody opens is a disclosure
+ *    nobody reads, and the readers who most need this sentence — screen reader,
+ *    custom font, translator — are the least likely to be hovering an info
+ *    icon.
+ *
+ *    WHERE it is permanent moved in 0.3.2. It used to be a clipped copy sitting
+ *    beside the short sentence; it is now the frame's own accessible NAME, so
+ *    it is stated on the way IN to the group rather than found by whoever reads
+ *    far enough. That is the one announcement every screen reader makes without
+ *    being asked. The clipped copy stays in the markup and stays in step with
+ *    the tooltip, but while the block is locked it is `aria-hidden`: the name
+ *    already said those words, and saying them again two nodes later is the
+ *    duplicate-prose bug this component spent a release removing.
+ *
+ *    So the invariant is unchanged in substance — the explanation reaches a
+ *    listener exactly once per state — and only its carrier moved.
+ *
+ * 3. **The word "encoded" appears nowhere a reader can see.** It is jargon for
+ *    a mechanism, addressed to an audience that only wants to know why copy
+ *    behaves oddly and what to press about it.
+ *
+ * ## What the emitted script does NOT carry
+ *
+ * Same rule as the font guard and the solver beside it: no comments, and no
+ * word that would identify the mechanism. A project that called
+ * `setCamouflage({ hash })` so its HTML shares no signature with any other
+ * ShieldFont site would have that undone by one explanatory comment surviving
+ * into the page. The explanations live here and stop at the compiler.
+ */
+
+/** Names the emitted script needs, all derived from the camouflage state. */
+export interface NoticeNames {
+  /** Base data-attribute name, e.g. `data-typeface-a8f3`. */
+  attr: string;
+  /** Window-level idempotency flag. */
+  flag: string;
+  /** console prefix for failures. */
+  logPrefix: string;
+  /** localStorage key prefix for solved blocks. */
+  storePrefix: string;
+  /** The font-family this notice's block renders in, for the health probe. */
+  family: string;
+}
+
+/**
+ * The notice's copy and shape. Every field has a default, so `notice` alone is
+ * a complete configuration.
+ */
+export interface ShieldNotice {
+  /**
+   * The SHORT sentence, drawn in the strip. Keep it to one line — it sits
+   * beside two buttons and wraps badly past about ten words.
+   *
+   * Do NOT put the protected words in it. The strip ships in the HTML, so a
+   * sentence quoting the text hands it to any scraper for free.
+   */
+  short?: string;
+
+  /**
+   * The FULL explanation. THREE jobs now, and it must read well doing all of
+   * them: it is what the info button reveals, it is what the clipped copy
+   * carries, and — since the disclaimer moved to where assistive technology
+   * actually meets it — it is the default ACCESSIBLE NAME of the whole frame.
+   *
+   * That last job is the one to write for. A `role="group"` announces its name
+   * when a listener enters it, so this sentence is now the first thing said
+   * about a protected block rather than something a reader has to go looking
+   * for. Entering the box should state the situation; the short sentence beside
+   * the buttons is the on-screen summary of it.
+   *
+   * Write it for the ear. A screen reader is the main consumer of this string,
+   * so it is read aloud far more often than it is read on screen.
+   */
+  text?: string;
+
+  /**
+   * What the strip SHOWS when the protective font did not load.
+   *
+   * Visual only. The accessible name keeps {@link text} unchanged, because a
+   * screen-reader user is not affected by a missing font — they were never
+   * reading the glyphs — and telling them about it is noise about a problem
+   * they do not have.
+   *
+   * Default names the situation and the fix, and nothing else.
+   */
+  brokenText?: string;
+
+  /**
+   * `"top"` (default) draws the strip once, above the text.
+   *
+   * `"both"` repeats it at the end of the box, for a passage long enough that a
+   * reader who finishes it would otherwise scroll back up to act. It is not the
+   * default because on anything short it is pure redundancy — a second copy of
+   * every control, 34 more elements and ~3.3 kB per block, and a second helping
+   * of the same prose for anyone reading linearly.
+   */
+  position?: "top" | "both";
+
+  /** Button labels. Defaults are deliberately plain verbs, not jargon. */
+  labels?: {
+    /** Default `"Uncover"`. */
+    show?: string;
+    /** Default `"Copy"`. */
+    copy?: string;
+    /**
+     * The longer spoken form of {@link show}, e.g. `"Uncover the plain text"`
+     * against a visible `"Uncover"`.
+     *
+     * It is USED ONLY IF IT STARTS WITH the visible label. WCAG 2.2 SC 2.5.3
+     * (Label in Name) requires the accessible name to begin with the visible
+     * words, because a speech-input user says what they can see — "click
+     * Uncover" — and a name that does not contain it matches nothing. So an
+     * author who renames `show` without renaming this gets their own label
+     * back rather than a silently broken voice control.
+     */
+    showLong?: string;
+    /** Default `"Restore"`. */
+    restore?: string;
+    /**
+     * DEAD. There is no info button any more — the abridged sentence behind a
+     * tooltip was replaced by the whole sentence in the strip, and the control
+     * that revealed it went with it. Kept only so an author who set it does not
+     * get a build error; it names nothing.
+     *
+     * @deprecated Nothing reads this.
+     */
+    info?: string;
+    /**
+     * The one fact that must survive, appended to every control's NAME.
+     * Default `"protected from AI bots"`.
+     *
+     * The full {@link ShieldNotice.text} rides along as the controls'
+     * DESCRIPTION, and that is not enough on its own: a description is
+     * supplementary and screen readers suppress it at default verbosity, so an
+     * explanation that lives only there is one many readers never hear. A name
+     * is never suppressed — a control without one is unusable — so the
+     * irreducible fact goes here and the elaboration stays in the description.
+     *
+     * Keep it to a few words. It is spoken before EVERY button on the block.
+     */
+    gist?: string;
+    /**
+     * Names the FRAME, which is a `role="group"`. **Defaults to
+     * `"Protected text"`** — a short identifier, not the explanation.
+     *
+     * The rendered name is `"<group>, <element> <n>"`, so the default is
+     * `"Protected text, paragraph 2"`. Entering the group says which block you
+     * are in; leaving it says you have left. That is the whole job.
+     *
+     * THIS DOC USED TO CLAIM THE DISCLAIMER WAS THE DEFAULT, and the code never
+     * did it — a comment describing an intention somebody had and did not
+     * finish, left sitting where it read as a specification. The argument for
+     * it was real: entering a group is the one moment every screen reader
+     * reliably says something, so spending it on a label is spending the only
+     * guaranteed sentence in the block. What settled it was hearing the block:
+     * the disclaimer is ALREADY spoken, on its own focus stop, because the
+     * sentence in the strip is a `role="note"` a reader lands on. Putting it in
+     * the group name too means hearing it twice on the way in, which is the
+     * repetition this file spends most of its length removing.
+     *
+     * Set it to anything shorter, or longer if your blocks need it. It is not
+     * derived from the protected words in either case — see the note on
+     * {@link ShieldNotice.text}.
+     */
+    group?: string;
+    /**
+     * Names the `<progress>` element. Default `"Decoding progress"`.
+     *
+     * The bar is `aria-hidden` (see {@link noticeCss} and the note in
+     * Shield.tsx), so this is currently read by nothing. It is kept, and kept
+     * translatable, because the decision to hide it is a judgement about one
+     * screen reader's defaults rather than a property of the markup.
+     */
+    progress?: string;
+  };
+
+  /**
+   * Intercept `copy` on the protected text. Default `true`.
+   *
+   * Selection itself is NEVER disabled — `user-select: none` would break the
+   * exact reader who filed the issue. What this does is narrower: when a
+   * selection actually touches still-protected text, the clipboard gets a short
+   * notice instead of silent decoy words. Copying anything else on the page,
+   * including this notice, is untouched.
+   */
+  copyGuard?: boolean;
+}
+
+/** Resolved form — every field present. */
+export interface ResolvedNotice {
+  short: string;
+  text: string;
+  brokenText: string;
+  position: "top" | "both";
+  labels: {
+    show: string;
+    copy: string;
+    restore: string;
+    info: string;
+    group: string;
+    progress: string;
+    gist: string;
+    showLong: string;
+  };
+  copyGuard: boolean;
+}
+
+export const DEFAULT_SHORT = "Protected from AI bots.";
+
+/**
+ * The default full explanation.
+ *
+ * Named readers first-class on purpose. "Show plain text" asks someone to
+ * decode a mechanism; naming the three situations that actually break — screen
+ * reader, custom font, translator — lets a person recognise THEMSELVES in the
+ * sentence, which is the only thing that makes them press the button.
+ *
+ * "to protect it from" rather than "to be protected from": the second stacks
+ * two passives and reads badly aloud, which matters more here than on screen.
+ */
+export const DEFAULT_TEXT =
+  "If you use a screen reader, custom font, or translator, the text below might " +
+  "appear scrambled. Uncover to see the original.";
+
+/**
+ * What lands in the clipboard when a selection touches still-protected text
+ * INSIDE A DRAWN WRAPPER — so it can point at a button the reader can see.
+ */
+export function clipboardNotice(showLabel: string): string {
+  return (
+    `[This text is protected from AI bots and didn’t copy correctly. ` +
+    `Use “${showLabel}” next to it, then copy again.]`
+  );
+}
+
+/**
+ * The same sentence for a block with NO wrapper drawn — `copyPaste` on its own.
+ *
+ * It cannot say "use the button next to it", because on this tier there is no
+ * button next to it: the control is real and focusable but clipped off-screen,
+ * so a sentence that tells a sighted reader to look for something they cannot
+ * see is worse than saying nothing. It has to be self-sufficient — what
+ * happened, and what to do about it with no visible control in the picture.
+ *
+ * "Just before it" is a fact about the markup, not a hope: `<Shield>` renders
+ * the accessible alternative immediately BEFORE the protected block in DOM
+ * order, precisely so linear navigation reaches it first. Tab and a screen
+ * reader both find it there.
+ *
+ * Deliberately does NOT mention the wrapper or suggest turning it on. This
+ * string is read by someone who just lost a paste, not by the author.
+ */
+export function standaloneClipboardNotice(): string {
+  return (
+    `[This text is protected from AI bots, so what you copied is not what you ` +
+    `read on screen. A control that shows the original sits immediately before ` +
+    `this passage — reach it with the Tab key or your screen reader, show the ` +
+    `text, then copy again.]`
+  );
+}
+
+/**
+ * Shown in place of the sentence when the protective font is missing.
+ *
+ * Says what is wrong in the READER's terms — the words on screen are not the
+ * real ones — and points at the control. It deliberately does not say "font":
+ * that names our mechanism, not their problem, and a reader who has just been
+ * handed nonsense does not need a lesson in typography to get out of it.
+ */
+export const DEFAULT_BROKEN =
+  "The text below isn’t showing correctly. Uncover the original to read it.";
+
+export function resolveNotice(n: ShieldNotice | true): ResolvedNotice {
+  const cfg: ShieldNotice = n === true ? {} : n;
+  const l = cfg.labels ?? {};
+  const text = cfg.text ?? DEFAULT_TEXT;
+  return {
+    short: cfg.short ?? DEFAULT_SHORT,
+    text,
+    brokenText: cfg.brokenText ?? DEFAULT_BROKEN,
+    position: cfg.position ?? "top",
+    labels: {
+      show: l.show ?? "Uncover",
+      copy: l.copy ?? "Copy",
+      restore: l.restore ?? "Restore",
+      info: l.info ?? "What does this mean?",
+      gist: l.gist ?? "protected from AI bots",
+      showLong: l.showLong ?? "Uncover the original text",
+      // Defaults to the full explanation, so an author who translates `text`
+      // gets a translated group name for free and never has to discover that
+      // the frame had a second, separate string to override.
+      group: l.group ?? "Protected text",
+      progress: l.progress ?? "Decoding progress",
+    },
+    copyGuard: cfg.copyGuard ?? true,
+  };
+}
+
+/**
+ * The frame's accessible name: the disclaimer, then which block it is.
+ *
+ * The trailing-punctuation trim is the whole reason this is a function. The
+ * default disclaimer is three sentences and ends in a full stop, and appending
+ * ", paragraph 2" to that produces "…one press away., paragraph 2" — which a
+ * screen reader reads with the pause of a finished sentence and then an
+ * orphaned fragment after it. Trimmed, the ordinal joins the last clause and
+ * the whole name reads as one phrase.
+ */
+export function groupName(label: string, noun: string, ordinal: number): string {
+  return `${label.replace(/[.!?…]+$/, "")}, ${noun} ${ordinal}`;
+}
+
+/**
+ * Lucide icon paths (ISC). Inlined rather than imported: this package has one
+ * dependency and is not taking a second for four `<path d>` strings, and a
+ * consumer that does not use React icons should not be made to install them.
+ *
+ * 24x24, stroke-width 2, round caps — Lucide's own geometry, so they sit
+ * correctly beside a project that already uses lucide-react.
+ */
+export const ICONS = {
+  eye:
+    '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
+  eyeOff:
+    '<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>',
+  copy:
+    '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  /** Lucide `shield` — the protected state. */
+  shield:
+    '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
+  /** Lucide `shield-off` — protection stood down, the original on screen. */
+  shieldOff:
+    '<path d="m2 2 20 20"/><path d="M5 5a1 1 0 0 0-1 1v7c0 5 3.5 7.5 7.67 8.94a1 1 0 0 0 .67.01c2.35-.82 4.48-1.97 5.9-3.71"/><path d="M9.309 3.652A12.252 12.252 0 0 0 11.24 2.28a1 1 0 0 1 1.52 0C14.51 4.32 17 5 19 5a1 1 0 0 1 1 1v7a9.784 9.784 0 0 1-.08 1.264"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+} as const;
+
+/**
+ * The notice's stylesheet, emitted once per page.
+ *
+ * Every selector is keyed off the camouflaged data attribute, so a project that
+ * picked its own hash shares no class names with any other ShieldFont site.
+ * Colours are `currentColor` and transparent tints wherever possible so the
+ * notice inherits the host page's palette instead of imposing one — the one
+ * exception is the failure state, which has to be visibly abnormal.
+ */
+/**
+ * The shared inner UI, written once and emitted per scope.
+ *
+ * The drawn wrapper and the clipped control are the same thing: a shield, a
+ * sentence, an uncover button. The only real difference is that one sits in a
+ * bordered box. They used to carry independent stylesheets, which is exactly
+ * why they drifted apart — different button shapes, different type sizes, and
+ * no shield on the clipped one at all.
+ *
+ * A comma list will not do this job: `[a],[b] .x` parses as `[a]` plus
+ * `[b] .x`, so the descendant rules would silently apply to one root only.
+ * Emitting the whole block once per scope is a few kilobytes of duplication
+ * for a guarantee that the two can never diverge again.
+ */
+function innerCss(F: string, attr: string): string {
+  return (
+    // FIRST RULE, AND IT IS LOAD-BEARING. `[hidden]` is only a UA-stylesheet
+    // rule, so ANY author `display` declaration outranks it — including the
+    // ones a few lines below, which set display:inline-flex on the very
+    // elements that ship `hidden` (the health chip, the restore button). The
+    // result was a chip permanently reading "Font unavailable" and a Restore
+    // button on a block nobody had revealed yet. Shield.tsx documents the same
+    // trap for a stray `progress { display: block }` in a host reset; this is
+    // that bug, introduced by our own stylesheet rather than someone else's.
+    `${F} [hidden]{display:none !important;}` +
+    // THE BOX IS SHARED. Both tiers draw the same outline in the same colour,
+    // going amber when the font failed. The clipped tier used to have none —
+    // the rule lived in noticeCss and only the drawn wrapper got it — and the
+    // two tiers read as two different products stacked on one page.
+    `${F}{position:relative;border:1px solid rgba(128,128,128,.32);border-radius:12px;}` +
+    `${F}[${attr}-failed]{border-color:rgba(184,121,31,.55);}` +
+    `${F} [${attr}-skeleton]{color:transparent !important;`+
+    `-webkit-text-fill-color:transparent;text-shadow:none !important;`+
+    `user-select:none;background-origin:content-box;background-clip:content-box;`+
+    `background-repeat:repeat-y;background-size:100% 1.6em;`+
+    `background-image:linear-gradient(180deg,transparent 0,transparent .46em,`+
+    `rgba(128,128,128,.20) .46em,rgba(128,128,128,.20) 1.1em,transparent 1.1em);}` +
+    `@supports (height:1lh){${F} [${attr}-skeleton]{background-size:100% 1lh;`+
+    `background-image:linear-gradient(180deg,`+
+    `transparent 0,transparent calc((1lh - 1em)/2 + .16em),`+
+    `rgba(128,128,128,.20) calc((1lh - 1em)/2 + .16em),`+
+    `rgba(128,128,128,.20) calc((1lh - 1em)/2 + .80em),`+
+    `transparent calc((1lh - 1em)/2 + .80em));}}` +
+    `${F} [${attr}-skeleton]::selection{background:transparent;}` +
+
+    // The protected text and the revealed text are the author's own elements,
+    // so the frame supplies the inset rather than expecting them to carry it.
+    `${F} > [${attr}-block],${F} > [${attr}-out]{margin:0;padding:22px 18px;}` +
+    `${F} [${attr}-strip]{position:relative;display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;` +
+    `padding:10px 14px;background:rgba(128,128,128,.08);font-family:inherit;}` +
+    `${F} [${attr}-strip="top"]{border-bottom:1px solid rgba(128,128,128,.18);border-radius:11px 11px 0 0;}` +
+    `${F} [${attr}-strip="bottom"]{border-top:1px solid rgba(128,128,128,.18);border-radius:0 0 11px 11px;}` +
+    `${F}[${attr}-failed] [${attr}-strip]{background:rgba(184,121,31,.12);}` +
+    `${F} [${attr}-say]{position:relative;display:flex;align-items:center;gap:7px;`+
+    `flex:1 1 0;min-width:0;min-height:36px;}` +
+    `${F} [${attr}-acts]{min-height:30px;flex:0 0 auto;justify-content:flex-end;}` +
+    `${F} [${attr}-toast]{position:absolute;inset:0;display:flex;align-items:center;`+
+    `font-size:.82rem;font-weight:500;color:#2E7D5B;pointer-events:none;`+
+    `opacity:0;transform:translateY(6px);`+
+    `transition:opacity .22s cubic-bezier(.2,.8,.2,1),transform .22s cubic-bezier(.2,.8,.2,1);}` +
+    `${F} [${attr}-strip][${attr}-toasting] [${attr}-toast]{opacity:1;transform:none;}` +
+    `${F} [${attr}-strip][${attr}-toasting="blocked"] [${attr}-toast]{color:#C0392B;}` +
+    `@media (prefers-color-scheme:dark){${F} [${attr}-strip][${attr}-toasting="blocked"] [${attr}-toast]{color:#FF8A7A;}}` +
+    `${F} [${attr}-prog]{position:absolute;inset:0;display:flex;flex-direction:column;`+
+    `align-items:stretch;justify-content:center;gap:5px;pointer-events:none;}` +
+    `${F} [${attr}-strip][${attr}-loading] [${attr}-say-full],`+
+    `${F} [${attr}-strip][${attr}-loading] [${attr}-icon]{opacity:0;}` +
+    `${F} [${attr}-strip][${attr}-toasting] [${attr}-say-full],` +
+    `${F} [${attr}-strip][${attr}-toasting] [${attr}-icon]{opacity:0;transition:opacity .16s;}` +
+    `@media (prefers-reduced-motion:reduce){${F} [${attr}-toast]{transition:opacity .01ms;transform:none;}}` +
+    `${F} [${attr}-say-full]{margin:0;font-family:inherit;font-size:12px;`+
+    `line-height:1.32;font-weight:400;text-transform:none;letter-spacing:normal;`+
+    // NO text-wrap:balance. Balancing evens the line lengths, which on a
+    // sentence sharing a row with two buttons means the whole block
+    // reflows and narrows every time the sentence changes — locked to
+    // broken to loading to open — and the strip visibly jumps under the
+    // reader mid-solve. Ordinary wrapping fills each line and only the
+    // last one moves.
+    `color:currentColor;opacity:.55;}` +
+    `${F} [${attr}-say-full]:focus-visible{outline:2px solid currentColor;`+
+    `outline-offset:3px;border-radius:3px;opacity:.9;}` +
+    `${F} [${attr}-say-full]:focus-visible{outline:2px solid currentColor;`+
+    `outline-offset:3px;border-radius:3px;opacity:.9;}` +
+    `${F} [${attr}-acts]{display:flex;align-items:center;gap:7px;flex-shrink:0;flex-wrap:wrap;}` +
+    `${F} button{display:inline-flex;align-items:center;gap:7px;cursor:pointer;` +
+    `border:1px solid rgba(128,128,128,.34);border-radius:999px;background:transparent;color:inherit;` +
+    `font-family:inherit;font-size:.66rem;letter-spacing:.06em;text-transform:uppercase;` +
+    `font-weight:500;padding:7px 13px;white-space:nowrap;}` +
+    `${F} button:hover{background:rgba(128,128,128,.14);}` +
+    // WCAG 2.2 SC 2.4.7. The UA ring was never removed, so this is not a fix
+    // for a missing indicator — it is a fix for an ILLEGIBLE one: the primary
+    // button paints `background:currentColor`, and a default ring drawn in the
+    // text colour on a background of the text colour is invisible. The offset
+    // moves it clear of the fill; `Canvas` is the same system colour the
+    // primary button already uses for its own glyphs, so it tracks the host
+    // page's light/dark scheme without this file knowing which one it is in.
+    `${F} button:focus-visible,${F} [${attr}-out]:focus-visible{` +
+    `outline:2px solid currentColor;outline-offset:2px;}` +
+    `${F} button[${attr}-primary]:focus-visible{outline-color:Canvas;outline-offset:-4px;}` +
+    // The BUSY state, and the reason it is a dim rather than a `hidden`.
+    //
+    // While the block is working, every action button used to be `hidden`.
+    // The button that had just been PRESSED was one of them, so the browser
+    // moved focus to <body> the instant the reader activated it — for the
+    // whole five to twenty seconds of the wait. A screen-reader user pressed
+    // "Original text", lost their place, and got a polite announcement they
+    // had no context left to attach it to. That is most of "I didn't really
+    // know what was going on". A control that stays put, stays focused and
+    // says it is busy costs one dimmed button and fixes it outright.
+    `${F} button[${attr}-off]{opacity:.4;pointer-events:none;}` +
+    `${F} button[${attr}-primary]{background:currentColor;border-color:transparent;}` +
+    `${F} button[${attr}-primary] span{color:Canvas;}` +
+    `${F} button[${attr}-primary] svg{color:Canvas;}` +
+    `${F} button svg{width:13px;height:13px;flex:none;}` +
+    // 24x24, not 20x20: WCAG 2.2 SC 2.5.8 (Target Size, Minimum) is AA and
+    `${F} [${attr}-icon]{display:inline-flex;align-items:center;flex:none;opacity:.75;}` +
+    `${F} [${attr}-icon="off"]{opacity:1;}` +
+    `@media (prefers-color-scheme:dark){${F} [${attr}-toast]{color:#57E08C;}}` +
+    `${F} [${attr}-icon] svg{width:14px;height:14px;}` +
+    `${F} progress{appearance:none;-webkit-appearance:none;flex:0 0 auto;width:100%;height:3px;border:0;` +
+    `background:rgba(128,128,128,.22);border-radius:999px;overflow:hidden;vertical-align:middle;}` +
+    `${F} progress::-webkit-progress-bar{background:rgba(128,128,128,.22);border-radius:999px;}` +
+    `${F} progress::-webkit-progress-value{background:currentColor;border-radius:999px;}` +
+    `${F} progress::-moz-progress-bar{background:currentColor;border-radius:999px;}` +
+    `${F} [${attr}-est]{order:-1;font-size:12px;line-height:1.32;letter-spacing:normal;opacity:.72;`+
+    `white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}` +
+    // The clipped copy of the full sentence. NEVER display:none. Its presence
+    // in the tree is now controlled by `aria-hidden`, and a
+    // display rule here would make that control a lie in one direction: an
+    // element removed from the tree by CSS cannot be put back by an attribute.
+    `@media (max-width:500px){`+
+    `${F} [${attr}-strip]{flex-direction:column;align-items:stretch;gap:9px;padding:10px 12px;}`+
+    `${F} [${attr}-say]{flex:1 1 100%;}`+
+    `${F} [${attr}-acts]{flex:1 1 100%;}`+
+    `${F} [${attr}-acts]{gap:6px;}`+
+    `${F} [${attr}-acts] button[${attr}-act]{flex:1 1 0;justify-content:center;}`+
+    
+    `${F} progress{flex:1 1 auto;width:auto;max-width:none;}`+
+    
+    `${F} > [${attr}-block],${F} > [${attr}-out]{padding:18px 14px;}`+
+    `}`
+  );
+}
+
+/**
+ * The notice's browser half.
+ *
+ * Wires every frame on the page: the solve buttons (both strips drive the same
+ * puzzle), the copy buttons, the info disclosures, and the font-health probe.
+ *
+ * The puzzle machinery is deliberately IDENTICAL to solver.ts — same warm-up,
+ * same calibration window, same key derivation — because the two must agree
+ * byte for byte with `sealText` or the AES-GCM tag rejects and the reader gets
+ * an error where their words should be.
+ *
+ * Notes on the source, which carries no comments of its own:
+ *
+ * - A `-simulate-fail` attribute on <html> forces the probe to report failure.
+ *   It exists because the failure state is the one an author is least likely to
+ *   have seen and most likely to ship broken: it only appears when a font 404s
+ *   in production, which is exactly when nobody is watching. Toggling an
+ *   attribute is inert on a healthy page, costs nothing in bytes, and cannot be
+ *   reached by a crawler in a way that reveals anything the markup does not
+ *   already say.
+ * - `all()` is the page-wide uncover. Pressing any block's control starts every
+ *   other locked block too. The control used to be per block and its NAME said
+ *   so ("for paragraph 2"), because a reader had to tell several identical
+ *   buttons apart by ear — but that is the wrong shape for what it does. A
+ *   reader who needs the plain text needs it for the article, not for one
+ *   paragraph, and making them find and press a button per block, waiting each
+ *   time, is an obstacle dressed as a feature. Every block still grinds its own
+ *   puzzle — separate seals, separate moduli, no shortcut — but concurrently in
+ *   their own workers, so the page costs the slowest block rather than the sum.
+ *   Blocks already open, or restored from cache, are skipped.
+ *
+ *   It also drives the OTHER script's controls. A page can mix both tiers —
+ *   one block drawing a wrapper, the rest using the clipped control — and they
+ *   are wired by two separate scripts with separate state, so iterating this
+ *   script's own frames uncovered exactly one block and left the rest sitting
+ *   there. Synthesising a click on the clipped buttons is the honest way to
+ *   reach them: it goes through their real handler, so their capability checks,
+ *   their busy latch and their cache all behave exactly as if a reader had
+ *   pressed them.
+ * - `probe()` asks `document.fonts.load()` for the FACE rather than inferring
+ *   health from whether anything on the page is currently using it. The
+ *   inference is circular: the failure skin swaps the block off the shielded
+ *   family, which would remove the only consumer of the font being measured and
+ *   then report the absence it just caused.
+ * - Both strips share one state. `paint()` re-renders every strip of a frame
+ *   from that state, so pressing the bottom button updates the top one.
+ * - The copy listener is on `document`, and returns immediately unless the
+ *   selection intersects a still-protected block. Copying the notice itself,
+ *   or any other text on the page, must behave exactly as it would anywhere.
+ * - The tooltip is a real `<button>` with `aria-expanded`, openable by click and
+ *   keyboard and closable with Escape. Hover-open is layered on in CSS behind
+ *   `@media (hover:hover)` so a touch user is never left needing a pointer.
+ *   This paragraph described code that did not exist until now: the button
+ *   shipped a hard-coded `aria-expanded="false"` and nothing ever read or wrote
+ *   it, so it announced "collapsed" forever and did nothing when pressed. The
+ *   panel opened on `:focus-within` instead, which meant a keyboard reader saw
+ *   it open on arrival and then pressed a button that visibly did nothing.
+ * - The explanation is a plain visible text node in the lead strip, written by
+ *   paintStrip from the `-locked-say` / `-open-say` attributes. It is in the
+ *   accessibility tree exactly once, with no synchroniser needed — the earlier
+ *   design had the same sentence in three places and a `syncFull()` to stop
+ *   them being announced together, which is the kind of machinery that exists
+ *   only to manage a problem the layout created.
+ *   route through it. Its rule is "carry what the frame's NAME does not":
+ *   exposed only while the block is OPEN and the tooltip is collapsed, because
+ *   the open-state sentence ("you are reading the original… press Restore") is
+ *   the one thing the static group name cannot say. While the block is locked
+ *   the name already carries the explanation verbatim, so a second copy two
+ *   nodes away is pure repetition; while the tooltip is expanded the panel
+ *   carries it. Every state has exactly one bearer, which is what the previous
+ *   panel/clipped swap bought and this keeps.
+ * - `hold()` is the focus safety net. Every state change here hides some button,
+ *   and hiding the button a reader just pressed hands focus to `<body>` — which
+ *   on a virtual-buffer screen reader also drops them at the top of the
+ *   document. `hold()` runs after every paint and puts focus on the control
+ *   that replaced the one that vanished, but ONLY when focus actually went to
+ *   nowhere, so a reader who moved on in the meantime is never yanked back.
+ *   The click handler applies the other half of that guard: it passes a strip
+ *   only when focus was already inside the frame when the press happened.
+ *   Firefox and Safari do not focus a button on mouse-down, so without it a
+ *   mouse user would be handed a focus ring they never asked for — the fix for
+ *   losing focus must not become a way of imposing it.
+ * - `paintStrip` TOGGLES, it never rebuilds. An earlier version replaced the
+ *   action area's innerHTML with a progress bar while working, which destroyed
+ *   the buttons — so once a block finished there was no Restore button left to
+ *   un-hide, and the frame was stuck open for the rest of the session. The
+ *   progress element ships in the markup alongside the buttons and they take
+ *   turns. (This paragraph was a six-line comment INSIDE the emitted string
+ *   until now — six lines of prose about progress bars and Restore buttons
+ *   shipping on every page of every site using this mode, which is exactly the
+ *   signature setCamouflage() exists to erase. It stops at the compiler now,
+ *   like every other explanation in this file.)
+ * - `land()` staggers the reveal: paint, then focus at +120 ms, then the status
+ *   line at +420 ms. Both delays are for the same reason and neither is
+ *   cosmetic. A screen reader rebuilding its virtual buffer after a DOM change
+ *   the size of this one will announce stale content if focus arrives during
+ *   the rebuild, and a focus move cancels whatever speech is in flight — so an
+ *   announcement made before the move is an announcement nobody hears.
+ */
+/**
+ * The clipped control's layout, for when an author draws it.
+ *
+ * The drawn wrapper has always had a row: sentence on the left, controls on the
+ * right, one fixed height so nothing moves when the progress bar takes the
+ * buttons' place. The clipped control had none — it was a note, a button, a
+ * progress bar and an output element stacked in source order, so the bar
+ * appeared in a different place on every block and jumped the text down when it
+ * arrived.
+ *
+ * These rules give it the same row, so a page mixing both tiers looks like one
+ * component rather than two. They are inert while the control is hidden: that
+ * hiding is an INLINE style and no stylesheet beats it, which is exactly why
+ * this can be emitted unconditionally.
+ *
+ * `min-height` on the row is the part that stops the jumping — the bar and the
+ * button are different heights, and without it the paragraph below shifts every
+ * time one replaces the other.
+ */
+/** Everything above, for the drawn wrapper, plus the box it sits in. */
+export function noticeCss(attr: string): string {
+  const F = `[${attr}-frame]`;
+  return (
+    innerCss(F, attr) +
+    // The outline and its failed-state colour come from innerCss, which both
+    // tiers share. Only the STRIP is the frame's own — a filled band with a
+    // hairline between it and the prose, which is the whole difference between
+    // a wrapper and a control sitting beside the text.
+    `${F} [${attr}-strip]{background:rgba(128,128,128,.08);}` +
+    `${F} [${attr}-strip="top"]{border-bottom:1px solid rgba(128,128,128,.18);border-radius:11px 11px 0 0;}` +
+    `${F} [${attr}-strip="bottom"]{border-top:1px solid rgba(128,128,128,.18);border-radius:0 0 11px 11px;}` +
+    `${F}[${attr}-failed] [${attr}-strip]{background:rgba(184,121,31,.12);}`
+  );
+}
+
+/** The same UI with no box around it, for the clipped control. */
+export function altCss(attr: string): string {
+  const G = `[${attr}-group]`;
+  return (
+    innerCss(G, attr) +
+    // The control gets the strip's LAYOUT and the strip's INSET, but not its
+    // fill — the box is the outline only, so the row reads as one thing with
+    // the prose below it rather than as a band sitting on top of it. The
+    // padding used to be `10px 0 0`, from back when there was no outline to be
+    // inset from: the sentence and the button sat flush against the border on
+    // both sides and along the bottom.
+    `${G}{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;` +
+    `width:100%;box-sizing:border-box;padding:10px 14px;}` +
+    // The solver writes the revealed words here; it belongs under the row, not
+    // in it.
+    // A CLASS SELECTOR, because that is what the element carries. This was
+    // written as `[${attr}-alt-out]` and matched nothing at all, so the revealed
+    // words had no order and landed ABOVE the progress bar and the status line
+    // instead of below them — visible on every un-clipped control, which now
+    // includes the font-failure state.
+    `${G} > .${attr}-alt-out{flex:1 1 100%;order:9;}`+
+    // The bar and the live status are siblings of the row rather than
+    // children of it on this tier, so they each take a full line under it.
+    // Same widths, same order, same look as the drawn strip — the demo used
+    // to restyle both of these itself and they came out a different product.
+    `${G} > progress{flex:1 1 100%;order:7;margin:2px 0;}`+
+    `${G} > [${attr}-status]{flex:1 1 100%;order:8;font-size:12px;line-height:1.32;opacity:.55;}`+
+    // AN EMPTY LIVE REGION TAKES NO ROW. It is `flex:1 1 100%`, so even at
+    // zero height it wrapped to a line of its own and collected the 10px
+    // row-gap in front of it — which is why this tier's box had visibly more
+    // space under the row than over it. Taken out of flex flow while empty,
+    // and clipped rather than `display:none`d: a live region that is
+    // display:none when its text arrives is unreliably announced, while the
+    // clip technique is the one every screen reader handles. `:empty` stops
+    // matching the moment the script writes a word, so it rejoins the flow
+    // exactly when it has something to occupy a line with.
+    `${G} > [${attr}-status]:empty{position:absolute;width:1px;height:1px;`+
+    `margin:0;padding:0;overflow:hidden;clip-path:inset(50%);}`
+  );
+}
+
+export function noticeScript(names: NoticeNames): string {
+  const { attr, flag, logPrefix, storePrefix, family } = names;
+  const WORKER_BODY =
+    `var W=8000,C=25000;onmessage=function(e){` +
+    `var n=BigInt(e.data.n),t=e.data.t,x=2n,i;` +
+    `for(i=0;i<Math.min(W,t);i++)x=(x*x)%n;` +
+    `if(t<=W+C){for(;i<t;i++)x=(x*x)%n;postMessage({done:x.toString(16)});return;}` +
+    `var c0=Date.now();for(i=W;i<W+C;i++)x=(x*x)%n;` +
+    `var el=Math.max(1,Date.now()-c0),rate=C/(el/1000);` +
+    `postMessage({seconds:(t-W-C)/rate});` +
+    `var step=Math.max(1,Math.floor(t/200));` +
+    `for(i=W+C;i<t;i++){x=(x*x)%n;if(i%step===0)postMessage({p:i/t});}` +
+    `postMessage({done:x.toString(16)});};`;
+
+  return `(function(){
+if (typeof window === 'undefined' || typeof document === 'undefined') return;
+if (window[${JSON.stringify(flag)}]) return;
+window[${JSON.stringify(flag)}] = 1;
+var A = ${JSON.stringify(attr)};
+var PFX = ${JSON.stringify(logPrefix)};
+var STORE = ${JSON.stringify(storePrefix)};
+var FAMILY = ${JSON.stringify(family)};
+var BODY = ${JSON.stringify(WORKER_BODY)};
+var CAPABLE = typeof BigInt === 'function' && window.crypto && window.crypto.subtle;
+var FONT_OK = true;
+var frames = [];
+var wired = typeof WeakSet === 'function' ? new WeakSet() : null;
+var wiredList = [];
+function isWired(el){ return wired ? wired.has(el) : wiredList.indexOf(el) !== -1; }
+function markWired(el){ if (wired) wired.add(el); else wiredList.push(el); }
+function q(el, n){ return el.querySelectorAll('[' + A + '-' + n + ']'); }
+function fromB64(s){ var b = atob(s), o = new Uint8Array(b.length);
+  for (var i = 0; i < b.length; i++) o[i] = b.charCodeAt(i); return o; }
+function plural(n, a, b){ return n + ' ' + (n === 1 ? a : b); }
+function human(s){
+  if (s < 45) return 'about ' + plural(Math.max(5, Math.round(s / 5) * 5), 'second', 'seconds');
+  var m = s / 60;
+  return m < 1.5 ? 'about a minute' : 'about ' + plural(Math.round(m), 'minute', 'minutes');
+}
+function cap(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
+function open(hex, d, len){
+  var c = hex.length >= len ? hex : new Array(len - hex.length + 1).join('0') + hex;
+  return window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(c))
+    .then(function(k){ return window.crypto.subtle.importKey('raw', k, 'AES-GCM', false, ['decrypt']); })
+    .then(function(k){ return window.crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(d.iv) }, k, fromB64(d.ct)); })
+    .then(function(b){ return new TextDecoder().decode(b); });
+}
+function task(d, onEst, onProg){
+  return new Promise(function(res, rej){
+    var len = BigInt(d.n).toString(16).length;
+    function fin(h){ open(h, d, len).then(function(t){ res({ hex: h, text: t }); }, rej); }
+    var w = null;
+    try { var u = URL.createObjectURL(new Blob([BODY], { type: 'text/javascript' }));
+      w = new Worker(u); URL.revokeObjectURL(u); } catch (e) { w = null; }
+    if (w){
+      w.onmessage = function(ev){ var m = ev.data;
+        if (m.seconds !== undefined) onEst(m.seconds);
+        else if (m.p !== undefined) onProg(m.p);
+        else if (m.done !== undefined){ w.terminate(); onProg(1); fin(m.done); } };
+      w.onerror = function(){ w.terminate(); chunk(); };
+      w.postMessage({ n: d.n, t: d.t });
+      return;
+    }
+    chunk();
+    function chunk(){
+      var n = BigInt(d.n), t = d.t, S = 4000, x = 2n, i = 0, meas = false, t0 = Date.now();
+      (function run(){
+        var end = Math.min(t, i + S);
+        for (; i < end; i++) x = (x * x) % n;
+        if (!meas && i >= S){ meas = true; onEst(t / (i / Math.max(0.001, (Date.now() - t0) / 1000))); }
+        onProg(i / t);
+        if (i < t) setTimeout(run, 0); else fin(x.toString(16));
+      })();
+    }
+  });
+}
+function Frame(root){
+  var self = this;
+  this.root = root;
+  this.state = 'locked';
+  this.plain = null;
+  this.block = root.querySelector('[' + A + '-block]');
+  this.out = root.querySelector('[' + A + '-out]');
+  this.status = root.querySelector('[' + A + '-status]');
+  var holder = root.querySelector('[' + A + '-data]');
+  try { this.data = JSON.parse(holder.textContent); }
+  catch (e) { console.error(PFX + ' sealed payload is not valid JSON.', e); this.data = null; }
+  this.key = this.data ? STORE + this.data.ct.slice(0, 40) : null;
+  try { this.says = JSON.parse(root.getAttribute(A + '-says') || '{}'); }
+  catch (e) { this.says = {}; }
+  this.cached = null;
+  try { this.cached = this.key ? window.localStorage.getItem(this.key) : null; } catch (e) {}
+  this.paint();
+  if (!CAPABLE && !this.cached) this.standdown();
+}
+Frame.prototype.reopen = function(){
+  var self = this;
+  if (!this.cached || !this.data) return;
+  var len = BigInt(this.data.n).toString(16).length;
+  open(this.cached, this.data, len).then(function(t){
+    self.plain = t;
+    self.state = 'open';
+    self.paint();
+  }, function(e){
+    console.warn(PFX + ' cached answer did not open; discarding it.', e);
+    try { if (self.key) window.localStorage.removeItem(self.key); } catch (err) {}
+  });
+};
+Frame.prototype.say = function(k){ if (this.status) this.status.textContent = this.says[k] || ''; };
+Frame.prototype.standdown = function(){
+  var btns = this.root.querySelectorAll('[' + A + '-act]'), i;
+  for (i = 0; i < btns.length; i++){
+    btns[i].hidden = true;
+    btns[i].style.display = 'none';
+  }
+  var says = this.root.querySelectorAll('[' + A + '-say-full]');
+  for (i = 0; i < says.length; i++){
+    says[i].textContent = this.says.incapable || '';
+    says[i].setAttribute('aria-label', this.says.incapable || '');
+  }
+};
+Frame.prototype.paint = function(){
+  var self = this, st = this.state, open = st === 'open';
+  if (!FONT_OK && !open) this.root.setAttribute(A + '-failed', '1');
+  else this.root.removeAttribute(A + '-failed');
+  var broken = !FONT_OK && !open;
+  if (this.block){
+    this.block.hidden = open;
+    if (broken) this.block.setAttribute(A + '-skeleton', '');
+    else this.block.removeAttribute(A + '-skeleton');
+  }
+  if (this.out){
+    this.out.hidden = !open;
+    if (open){ this.out.textContent = this.plain; this.out.setAttribute('tabindex', '0');
+      this.out.removeAttribute('aria-hidden'); }
+    else { this.out.textContent = ''; this.out.setAttribute('tabindex', '-1'); }
+  }
+  var strips = q(this.root, 'strip');
+  for (var i = 0; i < strips.length; i++) this.paintStrip(strips[i]);
+};
+Frame.prototype.paintStrip = function(strip){
+  var self = this, st = this.state;
+  var acts = strip.querySelector('[' + A + '-acts]');
+  var shortEl = strip.querySelector('[' + A + '-say-full]');
+  if (shortEl && st !== 'working') {
+    var key = st === 'open' ? '-open-say' : (FONT_OK ? '-locked-say' : '-broken-say');
+    shortEl.textContent = strip.getAttribute(A + key) || '';
+  }
+  if (st === 'working') strip.setAttribute(A + '-loading', '');
+  else strip.removeAttribute(A + '-loading');
+  var prog = strip.querySelector('[' + A + '-prog]');
+  if (prog) prog.hidden = st !== 'working';
+  var gOn = strip.querySelector('[' + A + '-icon="on"]');
+  var gCheck = strip.querySelector('[' + A + '-icon="off"]');
+  if (gOn) gOn.hidden = st === 'open';
+  if (gCheck) gCheck.hidden = st !== 'open';
+  var busy = st === 'working';
+  if (acts){
+    if (busy) acts.setAttribute('aria-busy', 'true');
+    else acts.removeAttribute('aria-busy');
+  }
+  var btns = strip.querySelectorAll('[' + A + '-act]');
+  var anyBusy = busy;
+  for (var i = 0; i < btns.length; i++){
+    var b = btns[i], kind = b.getAttribute(A + '-act');
+    if (kind === 'copy') b.hidden = false;
+    else b.hidden = st === 'open' ? true : kind !== 'show';
+    if (anyBusy) b.hidden = false;
+    if (busy){ b.setAttribute('aria-disabled', 'true'); b.setAttribute(A + '-off', ''); }
+    else { b.removeAttribute('aria-disabled'); b.removeAttribute(A + '-off'); }
+  }
+};
+Frame.prototype.hold = function(strip, kind){
+  var a = document.activeElement;
+  if (a && a !== document.body && a !== document.documentElement) return;
+  var b = strip ? strip.querySelector('[' + A + '-act="' + kind + '"]') : null;
+  if (b && !b.hidden){ try { b.focus(); } catch (e) {} }
+};
+Frame.prototype.run = function(intent, strip, own){
+  var self = this;
+  if (this.state !== 'locked' || !this.data) return;
+  if (!CAPABLE){
+    this.say(window.isSecureContext === false ? 'insecure' : 'incapable');
+    this.standdown();
+    return;
+  }
+  this.state = 'working';
+  this.paint();
+  this.hold(strip, intent === 'copy' ? 'copy' : 'show');
+  this.say('working');
+  var marks = [], spoke = 0, once = false;
+  function est(s){
+    if (once) return; once = true;
+    marks = s < 6 ? [] : s < 20 ? [0.5] : [0.25, 0.5, 0.75];
+    if (self.status) self.status.textContent =
+      (self.says.working || '') + ' ' + human(s) + (s < 20 ? '.' : '. ' + (self.says.keep || ''));
+    var els = q(self.root, 'est');
+    var lead = self.says.working || '';
+    for (var i = 0; i < els.length; i++){
+      els[i].textContent = lead ? lead + ' ' + human(s) : cap(human(s));
+    }
+  }
+  function prog(p){
+    var bars = self.root.getElementsByTagName('progress');
+    for (var i = 0; i < bars.length; i++) bars[i].value = Math.round(p * 100);
+    while (spoke < marks.length && p >= marks[spoke]){
+      if (self.status) self.status.textContent =
+        Math.round(marks[spoke] * 100) + ' ' + (self.says.pct || ''); spoke++;
+    }
+  }
+  task(this.data, est, prog).then(function(r){
+    try { if (self.key) window.localStorage.setItem(self.key, r.hex); } catch (e) {}
+    self.plain = r.text;
+    self.state = 'open';
+    self.paint();
+    if (intent === 'copy'){ self.copy(null); self.hold(strip, 'copy'); }
+    else self.land(own);
+  }, function(err){
+    console.error(PFX + ' request failed.', err);
+    self.state = 'locked';
+    self.paint();
+    self.hold(strip, intent === 'copy' ? 'copy' : 'show');
+    self.say('err');
+  });
+};
+Frame.prototype.land = function(own){
+  var self = this;
+  setTimeout(function(){
+    if (own) { try { self.out.focus(); } catch (e) {} }
+    setTimeout(function(){ self.say('done'); }, 300);
+  }, 120);
+};
+Frame.prototype.toast = function(kind){
+  var strips = q(this.root, 'strip'), i;
+  var msg = this.says[kind === 'blocked' ? 'toastBlocked' : 'toastCopied'] || '';
+  for (i = 0; i < strips.length; i++){
+    var t = strips[i].querySelector('[' + A + '-toast]');
+    if (t) t.textContent = msg;
+    strips[i].setAttribute(A + '-toasting', kind === 'blocked' ? 'blocked' : 'ok');
+  }
+  if (this.toastT) clearTimeout(this.toastT);
+  this.toastT = setTimeout(function(){
+    for (var j = 0; j < strips.length; j++) strips[j].removeAttribute(A + '-toasting');
+  }, 2100);
+};
+Frame.prototype.copy = function(btn){
+  var self = this;
+  if (!this.plain) return;
+  try {
+    navigator.clipboard.writeText(this.plain).then(function(){
+      self.say('copied');
+      self.toast('ok');
+    }, function(e){
+      self.say('copyFail');
+      console.warn(PFX + ' clipboard write rejected.', e);
+    });
+  } catch (e) {
+    self.say('copyFail');
+  }
+};
+function all(except){
+  for (var i = 0; i < frames.length; i++){
+    var f = frames[i];
+    if (f === except || f.state !== 'locked' || !f.data) continue;
+    f.run('show', null, false);
+  }
+  var others = document.querySelectorAll('[' + A + '-solve]');
+  for (var j = 0; j < others.length; j++){
+    var o = others[j];
+    if (o.hidden || o.getAttribute('aria-disabled') === 'true') continue;
+    try { o.click(); } catch (e) {}
+  }
+}
+document.addEventListener('click', function(ev){
+  var t = ev.target;
+  var btn = t && t.closest ? t.closest('[' + A + '-act]') : null;
+  if (btn){
+    if (btn.getAttribute('aria-disabled') === 'true') return;
+    var root = btn.closest('[' + A + '-frame]');
+    var here = root && root.contains(document.activeElement)
+      ? btn.closest('[' + A + '-strip]') : null;
+    for (var i = 0; i < frames.length; i++){
+      if (frames[i].root === root){
+        var k = btn.getAttribute(A + '-act');
+        if (k === 'copy' && frames[i].state === 'open') frames[i].copy(btn);
+        else if (k === 'copy') frames[i].run('copy', here, true);
+        else {
+          frames[i].run('show', here, true);
+          all(frames[i]);
+        }
+        return;
+      }
+    }
+    return;
+  }
+});
+document.addEventListener('copy', function(ev){
+  if (!CAPABLE) return;
+  var sel = window.getSelection();
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+  var hit = null;
+  for (var i = 0; i < frames.length; i++){
+    var f = frames[i];
+    if (f.state === 'open' || !f.block || !f.guard) continue;
+    for (var r = 0; r < sel.rangeCount; r++){
+      if (sel.getRangeAt(r).intersectsNode(f.block)){ hit = f; break; }
+    }
+    if (hit) break;
+  }
+  if (!hit) return;
+  if (!ev.clipboardData) return;
+  var text = sel.toString(), src = hit.block.textContent, msg = hit.notice;
+  ev.clipboardData.setData('text/plain',
+    text.indexOf(src) !== -1 ? text.split(src).join(msg) : msg);
+  ev.preventDefault();
+  hit.say('clipped');
+  hit.toast('blocked');
+});
+function probe(){
+  var done = function(ok){
+    FONT_OK = ok;
+    if (!ok) console.error(PFX + ' font "' + FAMILY + '" did not load. Every [' + A + '-block] on this page is showing substituted text. Check that the face is reachable.');
+    for (var i = 0; i < frames.length; i++) frames[i].paint();
+  };
+  if (document.documentElement.hasAttribute(A + '-simulate-fail')) return done(false);
+  if (!document.fonts || !document.fonts.load) return done(false);
+  document.fonts.load('1em "' + FAMILY + '"').then(function(f){
+    if (!f || f.length === 0) return done(false);
+    for (var i = 0; i < f.length; i++) if (f[i].status === 'error') return done(false);
+    done(true);
+  }, function(){ done(false); });
+}
+var probed = false;
+function sweep(){
+  var roots = document.querySelectorAll('[' + A + '-frame]');
+  var fresh = [];
+  for (var i = 0; i < roots.length; i++){
+    var r = roots[i];
+    if (isWired(r)) continue;
+    markWired(r);
+    var f = new Frame(r);
+    f.guard = r.getAttribute(A + '-guard') !== '0';
+    f.notice = r.getAttribute(A + '-clip') || '';
+    frames.push(f);
+    fresh.push(f);
+    f.reopen();
+  }
+  if (!fresh.length) return;
+  if (!probed){ probed = true; probe(); }
+  else for (var j = 0; j < fresh.length; j++) fresh[j].paint();
+}
+try {
+  new MutationObserver(function(){ probe(); }).observe(document.documentElement, {
+    attributes: true, attributeFilter: [A + '-simulate-fail'],
+  });
+} catch (e) {}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', sweep);
+else sweep();
+try { new MutationObserver(function(){ if (document.readyState !== 'loading') sweep(); })
+  .observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
+})();`;
+}
+
+/**
+ * `copyPaste` WITHOUT the wrapper — the whole of it.
+ *
+ * ## Why this is not the wrapper's handler
+ *
+ * The wrapper's copy interception lives inside {@link noticeScript}, reads its
+ * configuration off a `-frame` element and asks a live `Frame` object whether a
+ * block is still sealed. None of that exists on the `screenReader`-only tier,
+ * which is exactly why `copyPaste` on its own used to be accepted and silently
+ * do nothing.
+ *
+ * The fix could have been an invisible per-block host carrying the same
+ * attributes the frame carries. It is not, because that would put new markup on
+ * every protected block on the leanest tier that ships any markup at all. What
+ * this does instead costs, per block, ONE attribute holding one sentence — and
+ * per page, this listener.
+ *
+ * ## No state, no sweep, no observer
+ *
+ * There is nothing to wire. The handler queries the document at COPY time,
+ * which is a few hundred microseconds once in a while and buys three things the
+ * sweep-and-register shape does not: blocks that stream in later work with no
+ * MutationObserver, a solved block is detected by looking at where its words
+ * would be rather than by remembering that it was solved, and this file holds
+ * no references that could keep a removed block alive.
+ *
+ * ## The four decisions in the handler, in order
+ *
+ * - It returns immediately unless a range actually intersects a marked block.
+ *   Copying a heading, a caption, the notice itself or any other text on the
+ *   page must behave exactly as it does on any other website, and the fast exit
+ *   is what guarantees that rather than promises it. Selection is never
+ *   disabled: `user-select:none` would break the reader this feature is for.
+ * - It stays out of the way when there is NO PATH to the words. If the control
+ *   is still hidden — the browser lacks BigInt or `crypto.subtle`, the page is
+ *   on an insecure origin, or the page-level script has not run yet — a notice
+ *   telling someone to press a button that will never appear is a dead end, and
+ *   a dead end is worse than a wrong paste. The reader gets the substituted
+ *   words and the page behaves like the plain tier it currently is.
+ * - When the block is ALREADY SOLVED, including from the localStorage cache,
+ *   the real words go to the clipboard with no wait and no notice. That is the
+ *   whole point of having paid the puzzle once. The revealed element is clipped
+ *   off-screen by default, so a plain drag-select over the visible block would
+ *   otherwise still yield the substituted text from a block the reader has
+ *   already opened.
+ * - The substitution is a targeted splice, not a wholesale replacement,
+ *   WHENEVER the block's text appears intact in the selection: select three
+ *   paragraphs of which one is protected and the other two arrive untouched.
+ *   Only a PARTIAL selection of a protected block falls back to replacing the
+ *   whole clipboard, because half a substituted paragraph cannot be mapped onto
+ *   half a real one. That is the same rule the wrapper's handler has always
+ *   used, and it is stated here because it is the one case where a reader loses
+ *   text they had also selected.
+ *
+ * ## What the emitted source does NOT carry
+ *
+ * Same rule as every other emitted script in this package: no comments, and no
+ * word that would identify the mechanism. The one sentence a reader is meant to
+ * see travels as an attribute on the block, written by React and escaped by
+ * React, so an author can translate it and the script stays byte-identical on
+ * every page that uses it.
+ */
+export interface CopyGuardNames {
+  /** The camouflage base attribute, e.g. `data-typeface`. */
+  attr: string;
+  /** Window-level idempotency flag, so N blocks emit one listener. */
+  flag: string;
+}
+
+export function copyGuardScript(names: CopyGuardNames): string {
+  const { attr, flag } = names;
+  return `(function(){
+if (typeof window === 'undefined' || typeof document === 'undefined') return;
+if (window[${JSON.stringify(flag)}]) return;
+window[${JSON.stringify(flag)}] = 1;
+var A = ${JSON.stringify(attr)};
+function parts(el){
+  var id = el.id;
+  var b = id ? document.querySelector('[' + A + '-solve-for="' + id + '"]') : null;
+  var g = b && b.closest ? b.closest('[' + A + '-group]') : null;
+  return { b: b, o: g ? g.querySelector('[' + A + '-out]') : null };
+}
+document.addEventListener('copy', function(ev){
+  if (!ev.clipboardData) return;
+  var sel = window.getSelection();
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+  var els = document.querySelectorAll('[' + A + '-clip-say]');
+  for (var i = 0; i < els.length; i++){
+    var el = els[i], src = el.textContent, note = el.getAttribute(A + '-clip-say');
+    if (!src || !note) continue;
+    var touched = false;
+    for (var r = 0; r < sel.rangeCount; r++){
+      if (sel.getRangeAt(r).intersectsNode(el)){ touched = true; break; }
+    }
+    if (!touched) continue;
+    var p = parts(el);
+    var ready = p.o && p.o.textContent ? p.o.textContent : '';
+    if (!ready && !(p.b && p.b.hidden === false)) return;
+    var got = sel.toString();
+    var twice = ready !== '' && got.indexOf(ready) !== -1;
+    var put;
+    if (got.indexOf(src) !== -1) put = got.split(src).join(twice ? '' : (ready || note));
+    else if (twice) return;
+    else put = ready || note;
+    ev.clipboardData.setData('text/plain', put);
+    ev.preventDefault();
+    return;
+  }
+});
+})();`;
+}

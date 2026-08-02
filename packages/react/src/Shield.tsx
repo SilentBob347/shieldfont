@@ -3,6 +3,20 @@ import { DEFAULT_SECONDS, sealText } from "@shieldfont/core/puzzle";
 import * as React from "react";
 import { solverScript } from "./solver.js";
 import {
+  altCss,
+  DEFAULT_BROKEN,
+  DEFAULT_TEXT,
+  ICONS,
+  clipboardNotice,
+  copyGuardScript,
+  groupName,
+  noticeCss,
+  noticeScript,
+  resolveNotice,
+  standaloneClipboardNotice,
+  type ShieldNotice,
+} from "./notice.js";
+import {
   isValidElement,
   type CSSProperties,
   type ElementType,
@@ -279,6 +293,192 @@ export interface ShieldProps {
   a11y?: ShieldA11y;
 
   /**
+   * Draw the reader-facing notice: an outline enclosing this block, with a
+   * strip carrying one short sentence and two buttons ("Uncover",
+   * "Copy"). Requires `a11y={{ mode: "text" }}` — it is the visible surface of
+   * that mode, and does nothing without a sealed payload to open.
+   *
+   * `true` uses every default; pass a {@link ShieldNotice} to change the copy,
+   * the labels, or whether the strip repeats at the bottom.
+   *
+   * SETTING THIS REPLACES the clipped control. `visualHidden` stops applying,
+   * because there is no longer anything hidden to reveal — which is the point.
+   * See the header of `notice.ts` for why the clipped default did not survive
+   * contact with issue #2.
+   *
+   * @example
+   *   <Shield a11y={{ mode: "text" }} notice>{body}</Shield>
+   *   <Shield a11y={{ mode: "text" }} notice={{ position: "top" }}>{pullQuote}</Shield>
+   *   <Shield a11y={{ mode: "text" }} notice={{ short: "Protegido de bots de IA." }}>{body}</Shield>
+   */
+  notice?: ShieldNotice | boolean;
+
+  // ---- THE THREE INDEPENDENT SWITCHES -------------------------------------
+  //
+  // These three used to be one prop, which was a mistake: they are separate
+  // features with separate costs, and bundling them meant an author could not
+  // take the cheap one without the expensive one. Every one of them trades
+  // some concealment for some access, and the sizes of those trades are very
+  // different — so each says its own price in its own doc comment. Read them.
+  //
+  // ---- AND THE FOUR TIERS THEY MAKE ---------------------------------------
+  //
+  // The switches are the mechanism; these four are the names for the
+  // combinations anyone actually ships. They are the vocabulary used by the
+  // demo, by docs/plain-text-mode.md, and by every comment below. There is no
+  // `tier` prop — naming a thing is not the same as adding an API for it, and
+  // three orthogonal switches say more than one enum ever could.
+  //
+  //   FULL          screenReader · explain · copyPaste          ← the default
+  //                 An outline round the block and a strip carrying the
+  //                 sentence and the controls. A reader who needs a screen
+  //                 reader, their own reading face, or a translator can SEE
+  //                 that something is different and act on it without knowing
+  //                 anything about this library.
+  //
+  //   INVISIBLE     screenReader · copyPaste · explain={false}
+  //                 Nothing drawn. The control is real, focusable and clipped
+  //                 off-screen, and a copy that would have been silently wrong
+  //                 lands a sentence on the clipboard instead. Everything FULL
+  //                 does for a listener, nothing it does for an eye.
+  //
+  //   MINIMAL       screenReader · explain={false} · copyPaste={false}
+  //                 The clipped control and nothing else. A human who selects
+  //                 and copies gets decoy words with no explanation — which is
+  //                 a cost paid by a person, not by a crawler, and is the
+  //                 reason this tier is documented rather than recommended.
+  //
+  //   SEALED SHUT   screenReader={false}
+  //                 One element, 274 bytes, no script and no sentence anyone
+  //                 can match on. Also: aria-hidden with no alternative, which
+  //                 fails WCAG 2.2 SC 1.3.1 on any reading. It is here because
+  //                 pretending it is not a choice people make would be a lie,
+  //                 and because a library that hides its worst option is a
+  //                 library you cannot trust about its best one.
+  //
+  // WHY THE DEFAULT MOVED TO FULL. It was SEALED-adjacent for 0.3.0 and 0.3.1
+  // — a bare <Shield> drew nothing — on the reasoning that the wrapper's plain
+  // English is the one thing setCamouflage() cannot rename, so it should be
+  // opted into. That reasoning is intact; the conclusion changed. This library
+  // exists to deter bots, and every tier below FULL spends a human's time to
+  // do it: the screen-reader user who hears silence, the reader whose custom
+  // face turns the page to gibberish, the person who copies a quote and pastes
+  // nonsense into their notes. FULL is the only tier where none of those three
+  // is worse off, and it is one prop away from any of the others.
+
+  /**
+   * Ship the original words for assistive technology, sealed behind the
+   * time-lock puzzle. **Default `true`.**
+   *
+   * The cheapest of the three, and the one to leave alone — but "cheap" is
+   * relative and the exact figures are worth having. Measured on one block,
+   * markup only, excluding the page-level font CSS and scripts:
+   *
+   *   screenReader:false   1 element,    274 bytes,  no identifying strings
+   *   screenReader:true    8 elements,  2260 bytes,  "Scrambled", "Uncover",
+   *                                                  "the original text"
+   *
+   * So it is NOT signature-free, and an earlier version of this comment
+   * claimed it was. The default note ({@link A11Y_NOTE}) says "scrambled" and
+   * the generated button name says "Uncover the original text (up to N
+   * seconds)" — both are matchable, and `setCamouflage()` cannot reach either, because it
+   * renames attributes and font families, not prose. Override `note` and
+   * `label` if that matters more to you than a reader recognising the control.
+   *
+   * What it buys is the difference between a block a screen reader skips in
+   * silence and one a reader can actually get the words out of. Turning it off
+   * is a real choice with a real cost — the region becomes `aria-hidden` with
+   * no alternative, which fails WCAG 2.2 SC 1.3.1 on any reading, and under the
+   * EU Accessibility Act or the ADA Title II web rule that is a procurement
+   * blocker rather than an ethics question.
+   *
+   * Set it to `false` only if you have decided that and can say why.
+   */
+  screenReader?: boolean | { seconds?: number };
+
+  /**
+   * Draw the explanation wrapper: an outline enclosing the text with a strip
+   * carrying the sentence and the controls. **Default `true`** wherever there
+   * is a seal to open — this is the FULL tier. `explain={false}` gives you
+   * INVISIBLE; see the tier note above.
+   *
+   * THIS IS THE EXPENSIVE ONE, and the name is deliberate — it is not called
+   * `accessibility`, because what it is is an explanation, and what it does is
+   * make the page announce itself. It says "protected from AI bots" in plain
+   * English, on screen, in the HTML, once per block. Every word of that is a
+   * string a crawler can match on, and `setCamouflage()` cannot reach any of
+   * it: hashes rename attributes and font families, not prose.
+   *
+   * So the honest framing is a trade, not an upgrade. You gain a reader who can
+   * see that something is different and act on it — the person from issue #2
+   * who uses "an assistive technology called copy-paste" and could not find a
+   * control that was never drawn. You lose the property that your protected
+   * pages look like everyone else's pages.
+   *
+   * The size of the loss, measured on one block, markup only:
+   *
+   *   screenReader only       8 elements,  2260 bytes
+   *   explain position:"top" 48 elements,  6816 bytes
+   *   explain position:"both" 82 elements, 10138 bytes
+   *
+   * The second strip is 34 elements and 3.3 kB of that, and it duplicates every
+   * control and every sentence. On a short block prefer `"top"`.
+   *
+   * Two things soften it and neither eliminates it: the wording is yours to
+   * change ({@link ShieldNotice.short}/{@link ShieldNotice.text}), and a wrapper
+   * that also appears above UNPROTECTED text stops being evidence of anything.
+   *
+   * `explain={false}` gives you exactly what shipped in 0.3.0 and 0.3.1: a
+   * clean block with the accessible path present but not drawn. That was the
+   * default then and is not now; the tier note above says why the trade was
+   * made the other way.
+   *
+   * Requires {@link screenReader} — there is nothing to reveal without a seal.
+   */
+  explain?: ShieldNotice | boolean;
+
+  /**
+   * Mediate copy-paste. **Default `true`** wherever there is a seal. It is
+   * independent of {@link explain}: turning the wrapper off does not turn this
+   * off, because a silently-wrong paste is a cost paid by a person and by no
+   * crawler at all. `copyPaste={false}` with `explain={false}` is MINIMAL.
+   *
+   * Middling cost. It never disables selection — `user-select:none` would break
+   * the exact reader this was built for. What it does is narrower: a selection
+   * that touches still-protected text puts a short notice on the clipboard
+   * instead of silent decoy words, and (when {@link explain} is on) the strip
+   * carries a Copy button that grinds the puzzle first.
+   *
+   * The camouflage cost is one sentence: the clipboard notice ships in the HTML
+   * as an attribute, and it names the mechanism the same way the wrapper does.
+   * Turn it off and a copied paragraph is silently wrong, which is worse for a
+   * person and no obstacle at all to a crawler — so the default follows
+   * `explain` rather than being independently off.
+   *
+   * WORKS ON ITS OWN as of 0.3.2. It used to be accepted and silently inert
+   * without {@link explain}, which this comment admitted and which is the
+   * failure class this file fails loud on everywhere else. `copyPaste` with no
+   * wrapper now emits a page-level `copy` listener and marks each protected
+   * block with the clipboard sentence — one attribute per block, one small
+   * shared script per page, and no new elements. What a reader gets instead of
+   * a button they can see is a sentence naming the control that is already
+   * there: `<Shield>` renders the accessible alternative immediately before the
+   * block, so Tab and a screen reader both reach it.
+   *
+   * REQUIRES {@link screenReader}, and throws without it. With no seal there is
+   * no path to the words in any browser, so interception could only ever put a
+   * dead end on someone's clipboard — a worse outcome than the wrong paste it
+   * replaces, and the "punishing the reader" shape this package has already
+   * rejected once. For the same reason the listener stands down at runtime when
+   * a browser cannot open the seal at all (no `BigInt`, no `crypto.subtle`, an
+   * insecure origin): no path, no notice.
+   *
+   * It still defaults to whatever `explain` is, so nothing changes for anyone
+   * who never names it, and the all-off tier is untouched.
+   */
+  copyPaste?: boolean | { notice?: string };
+
+  /**
    * The content to encode. MUST be a plain string.
    *
    * Anything else throws. Nested JSX is rejected rather than walked, because
@@ -300,7 +500,8 @@ export interface ShieldProps {
  */
 const SHIELD_PROPS = new Set([
   "as", "variant", "weight", "lineHeight", "size",
-  "className", "style", "rotate", "a11y", "children",
+  "className", "style", "rotate", "a11y", "notice",
+  "screenReader", "explain", "copyPaste", "children",
 ]);
 
 const MAPPINGS: Record<ShieldVariant, Record<string, string>> = {
@@ -960,6 +1161,7 @@ function fontGuardScript(
   host: string,
   seedWeight: number | null,
   variant: ShieldVariant,
+  fallbackText: string,
 ): string {
   const flag = camo.guardFlag;
   const attr = camo.attrName;
@@ -980,10 +1182,18 @@ var ATTR   = ${JSON.stringify(attr)};
 // loaded fine. Scope every lookup to this guard's own variant.
 var SEL    = '[' + ATTR + '=' + ${JSON.stringify(JSON.stringify(variant))} + ']';
 var FAILED = ${JSON.stringify(failedAttr)};
+var ALT    = '[' + ATTR + '-group]';
 var PFX    = ${JSON.stringify(prefix)};
 var SEED   = ${seedWeight === null ? "null" : String(seedWeight)};
 var TIMEOUT_MS = 4000;
-var FALLBACK = 'Content unavailable — the font failed to load.';
+var FALLBACK = ${JSON.stringify(fallbackText)};
+// The sentence the STRIP shows and the name the BLOCK carries are not the same
+// string, and used to be. The strip sits above the words, so "the text below"
+// points at them correctly; the block IS the words, so on the block the same
+// sentence points at whatever comes next. It also named the Uncover button,
+// which the tiers without a wrapper do not have. Self-referential, and true on
+// every tier.
+var BROKEN = 'This text isn\\'t showing correctly.';
 var reg = window[FLAG] || (window[FLAG] = {});
 var prev = reg[FAMILY];
 if (prev && prev.seed) { if (SEED !== null) prev.seed(SEED); return; }
@@ -999,9 +1209,21 @@ function fail(reason){
     'Verify the font is reachable at ' + HOST + '/.'
   );
   var css =
-    SEL + '{font-size:0!important;line-height:0!important;}' +
-    SEL + '::before{content:' + JSON.stringify(FALLBACK) + ';' +
-    'display:inline-block;font:italic 1rem/1.5 system-ui,sans-serif;opacity:0.65;}';
+    SEL + '{color:transparent!important;-webkit-text-fill-color:transparent;' +
+    'text-shadow:none!important;user-select:none;' +
+    'background-origin:content-box;background-clip:content-box;' +
+    'background-repeat:repeat-y;background-size:100% 1.6em;' +
+    'background-image:linear-gradient(180deg,transparent 0,transparent .46em,' +
+    'rgba(128,128,128,.20) .46em,rgba(128,128,128,.20) 1.1em,transparent 1.1em);}' +
+    '@supports (height:1lh){' + SEL + '{background-size:100% 1lh;' +
+    'background-image:linear-gradient(180deg,' +
+    'transparent 0,transparent calc((1lh - 1em)/2 + .16em),' +
+    'rgba(128,128,128,.20) calc((1lh - 1em)/2 + .16em),' +
+    'rgba(128,128,128,.20) calc((1lh - 1em)/2 + .80em),' +
+    'transparent calc((1lh - 1em)/2 + .80em));}}' +
+    ALT + '{position:static!important;width:auto!important;height:auto!important;' +
+    'margin:0!important;overflow:visible!important;clip-path:none!important;' +
+    'white-space:normal!important;}';
   var sheet = document.createElement('style');
   sheet.setAttribute(FAILED, '1');
   sheet.appendChild(document.createTextNode(css));
@@ -1009,7 +1231,7 @@ function fail(reason){
   var els = document.querySelectorAll(SEL);
   for (var i = 0; i < els.length; i++) {
     var el = els[i];
-    el.setAttribute('aria-label', FALLBACK);
+    el.setAttribute('aria-label', BROKEN);
     el.setAttribute(FAILED, '1');
   }
 }
@@ -1097,12 +1319,35 @@ function settle(){
   }, function(e){ fail(String((e && e.message) || e)); });
   setTimeout(function(){ if (!done) fail('timeout after ' + TIMEOUT_MS + 'ms'); }, TIMEOUT_MS);
 }
+var DOC = document.documentElement;
+if (DOC && DOC.hasAttribute && DOC.hasAttribute(ATTR + '-simulate-fail')) {
+  fail('simulated');
+  return;
+}
 if (!document.fonts || !document.fonts.load) {
   fail('document.fonts API not supported');
   return;
 }
 if (prev && prev.queued) { for (var q = 0; q < prev.queued.length; q++) seed(prev.queued[q]); }
 if (SEED !== null) seed(SEED);
+function unfail(){
+  done = false;
+  var sheets = document.querySelectorAll('style[' + FAILED + ']');
+  for (var i = 0; i < sheets.length; i++) sheets[i].parentNode.removeChild(sheets[i]);
+  var marked = document.querySelectorAll(SEL + '[' + FAILED + ']');
+  for (var j = 0; j < marked.length; j++){
+    marked[j].removeAttribute(FAILED);
+    marked[j].removeAttribute('aria-label');
+  }
+}
+try {
+  if (DOC && typeof MutationObserver === 'function') {
+    new MutationObserver(function(){
+      if (DOC.hasAttribute(ATTR + '-simulate-fail')){ done = false; fail('simulated'); }
+      else unfail();
+    }).observe(DOC, { attributes: true, attributeFilter: [ATTR + '-simulate-fail'] });
+  }
+} catch (e) {}
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', settle);
 else settle();
 })();`;
@@ -1525,14 +1770,18 @@ const VISUALLY_HIDDEN: CSSProperties = {
  * with one row.
  */
 const A11Y_NOTE = {
-  audio:
-    "This section is hidden from assistive technology because its text is encoded. The same words are available as audio below.",
+  // NOT "hidden from assistive technology because its text is encoded". That
+  // sentence was two kinds of wrong at once: it is jargon addressed to someone
+  // who only wants the words, and the audio control is VISIBLE by default, so
+  // it put "encoded" on screen — a word notice.ts's own header rule keeps out
+  // of anywhere a reader can see, because it is a free signature for a crawler.
+  audio: "This text can’t be read aloud. Listen to it here instead.",
   // Short on purpose. The first version ran to thirty-three words and opened
   // with "hidden from assistive technology", which is jargon addressed to the
   // wrong audience — the listener does not care what the mechanism is called,
   // they care that a paragraph is missing and that there is a way to get it.
   // Tested by ear: the long version was heard as noise to skip past.
-  text: "This text is scrambled and is not read aloud. Unlock the real words with the button below.",
+  text: DEFAULT_TEXT,
 } as const;
 
 /**
@@ -1547,7 +1796,7 @@ const A11Y_NOTE = {
  * Falls back to the long form outside a render-pass scope, since without one
  * there is no way to know whether this block is the first.
  */
-const A11Y_NOTE_REPEAT = "Scrambled text. Unlock the real words below.";
+const A11Y_NOTE_REPEAT = "Scrambled text. Uncover the original below.";
 
 /**
  * Tags for which `<Shield>` renders an INLINE alternative wrapper. A `<div>` or
@@ -1582,17 +1831,18 @@ function warnIfNoA11y(): void {
   if (warnedMissingA11y || isProduction()) return;
   warnedMissingA11y = true;
   console.warn(
-    `${camo.logPrefix} <Shield> rendered with no \`a11y\` prop. The encoded block is ` +
-      `aria-hidden, so assistive technology reads NOTHING there — what a sighted reader ` +
-      `perceives is not programmatically available (WCAG 2.2 SC 1.3.1). Pass ` +
-      `a11y={{ mode: "text" }}: it needs nothing from you, seals the original words into ` +
-      `the page at build time, and lets a reader who needs them decode them in their own ` +
-      `browser. Or a11y={{ mode: "audio", src }} with a file synthesised AT BUILD TIME. ` +
-      `Pass a11y={{ mode: "none" }} to opt out explicitly and silence this. Do NOT reach ` +
-      `for browser speechSynthesis: it needs your original text in the browser, which is ` +
-      `the leak this package exists to prevent.`,
+    `${camo.logPrefix} <Shield> is rendering with the accessible alternative turned OFF ` +
+      `(screenReader={false}, or a11y={{ mode: "none" }}). The encoded block is aria-hidden, so ` +
+      `assistive technology reads NOTHING there — what a sighted reader perceives is not ` +
+      `programmatically available (WCAG 2.2 SC 1.3.1). That is a defensible choice only if you ` +
+      `made it deliberately. The default is screenReader={true} (equivalently a11y={{ mode: "text" }}), ` +
+      `which seals the original words ` +
+      `into the page at build time and lets a reader who needs them decode them in their own ` +
+      `browser. Do NOT reach for browser speechSynthesis instead: it needs your original text in ` +
+      `the browser, which is the leak this package exists to prevent.`,
   );
 }
+
 
 /**
  * Build the accessible alternative. Returns `null` for `{ mode: "none" }` and
@@ -1618,11 +1868,14 @@ function renderA11y(
   tag: string | null,
   ordinal: number,
 ): ReactNode {
-  if (!a11y) {
+  // Both branches are now an explicit opt-out: `undefined` only reaches here
+  // when screenReader was set false, because otherwise the caller substitutes
+  // a text-mode config. So the warning fires for a decision someone made,
+  // never for a default they never saw.
+  if (!a11y || a11y.mode === "none") {
     warnIfNoA11y();
     return null;
   }
-  if (a11y.mode === "none") return null;
 
   const attr = camo.attrName;
   const Wrap = (inline ? "span" : "div") as ElementType;
@@ -1672,7 +1925,20 @@ function renderA11y(
   // accessibility tree and leaves its contents exactly where they were.
   return (
     <Wrap className={`${attr}-alt`} role="presentation" style={wrapStyle} {...groupMark}>
-      <Note className={`${attr}-alt-note`}>{note}</Note>
+      <span {...({ [`${attr}-say`]: "" } as Record<string, string>)}>
+        <span aria-hidden="true" {...({ [`${attr}-icon`]: "on" } as Record<string, string>)}>
+          <Icon d={ICONS.shield} />
+        </span>
+        <Note
+          className={`${attr}-say-full`}
+          {...({ [`${attr}-alt-note`]: "", [`${attr}-say-full`]: "" } as Record<string, string>)}
+          tabIndex={0}
+          role="note"
+          aria-label={note}
+        >
+          {note}
+        </Note>
+      </span>
       {a11y.mode === "audio" ? (
         <audio controls preload="none" src={a11y.src} aria-label="Audio version" />
       ) : (
@@ -1752,8 +2018,12 @@ function nounFor(tag: string | null): string {
   return (tag && TAG_NOUN[tag]) ?? "section";
 }
 
-function puzzleLabel(tag: string | null, ordinal: number, seconds: number): string {
-  return `Unlock the plain text for ${nounFor(tag)} ${ordinal} (up to ${seconds} seconds)`;
+function puzzleLabel(_tag: string | null, _ordinal: number, seconds: number): string {
+  // NO ORDINAL. It used to say "for paragraph 2", which was right when every
+  // block had its own control and a reader had to tell them apart by ear. The
+  // control is page-wide now — one press uncovers every protected block — so
+  // naming one paragraph would describe a scope the button does not have.
+  return `Uncover the original text (up to ${seconds} seconds)`;
 }
 
 /**
@@ -1787,6 +2057,404 @@ function puzzleLabel(tag: string | null, ordinal: number, seconds: number): stri
  * never owns — which is a larger change than this one and not a correctness fix.
  */
 const EMPTY_HTML = { __html: "" };
+
+/**
+ * A Lucide glyph. `d` is always a module constant from {@link ICONS}, never
+ * anything an author supplies, so the inner HTML is not a surface.
+ */
+function Icon({ d }: { d: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      dangerouslySetInnerHTML={{ __html: d }}
+    />
+  );
+}
+
+/** Inline `display:none` — see ActionButton's `off`. */
+const OFF: CSSProperties = { display: "none" };
+
+/**
+ * The status glyph — a shield while the text is protected, a crossed shield
+ * once it is not. Both ship; the script swaps which is hidden.
+ *
+ * aria-hidden on both: the sentence beside them already says which state this
+ * is, and the live region announces the change. A third telling is noise to
+ * the reader who needs the first two.
+ */
+function StateIcons({ attr }: { attr: string }) {
+  return (
+    <>
+      <span aria-hidden="true" {...({ [`${attr}-icon`]: "on" } as Record<string, string>)}>
+        <Icon d={ICONS.shield} />
+      </span>
+      <span hidden aria-hidden="true" {...({ [`${attr}-icon`]: "off" } as Record<string, string>)}>
+        <Icon d={ICONS.shieldOff} />
+      </span>
+    </>
+  );
+}
+
+/**
+ * One control. Every button in the notice is this, so a change to the shape of
+ * a button is a change in one place — which is what stopped being true when
+ * the clipped path grew its own copy.
+ *
+ * `label` is the VISIBLE word, or nothing for an icon-only control. `name` is
+ * what a screen reader says, and it must begin with `label` where there is one
+ * (WCAG 2.2 SC 2.5.3) so a speech-input user can say what they can see.
+ */
+function ActionButton({
+  attr,
+  act,
+  icon,
+  label,
+  name,
+  primary,
+  hidden: isHidden,
+  off,
+  extra,
+}: {
+  attr: string;
+  act: string;
+  icon: string;
+  label?: string;
+  name: string;
+  primary?: boolean;
+  hidden?: boolean;
+  /**
+   * Belt AND braces for a control that must not be visible yet: the `hidden`
+   * attribute is only a default-stylesheet rule, so one line of a host
+   * project's CSS (`button { display: inline-block }` in a reset) un-hides it
+   * and puts a dead button on every page. The inline style cannot be beaten
+   * except deliberately, with !important — which is exactly how the script
+   * reveals it.
+   */
+  off?: boolean;
+  extra?: Record<string, string>;
+}) {
+  const marks = {
+    [`${attr}-act`]: act,
+    ...(primary ? { [`${attr}-primary`]: "" } : {}),
+    ...(extra ?? {}),
+  } as Record<string, string>;
+  return (
+    <button
+      type="button"
+      hidden={isHidden}
+      style={off ? OFF : undefined}
+      aria-label={name}
+      {...marks}
+    >
+      <Icon d={icon} />
+      {label ? <span>{label}</span> : null}
+    </button>
+  );
+}
+
+/**
+ * The loading state: the line that says what is happening, over the bar that
+ * says how far along it is. Absolutely positioned by the stylesheet so it
+ * covers the sentence rather than displacing it — the row's height is then the
+ * sentence's height in every state, and pressing the button cannot move the
+ * page under the reader.
+ */
+function LoadingRow({ attr, name, lead }: { attr: string; name: string; lead: boolean }) {
+  return (
+    <span
+      hidden
+      {...({ [`${attr}-prog`]: "" } as Record<string, string>)}
+      {...(lead ? {} : { "aria-hidden": "true" as const })}
+    >
+      {/*
+        The bar is aria-hidden. NVDA ships "Progress bar output: Beep" ON and
+        this is driven ~200 times across the wait; the spoken estimate carries
+        the same information without the tones.
+      */}
+      <progress max={100} value={0} aria-hidden="true" aria-label={name} />
+      <span {...({ [`${attr}-est`]: "" } as Record<string, string>)}>Loading text…</span>
+    </span>
+  );
+}
+
+/**
+ * One strip of the notice — the same markup top and bottom, because a reader
+ * who reaches the end of a long passage should get the same controls, not a
+ * cut-down copy of them.
+ *
+ * Every string the script needs later is parked on the strip as a data
+ * attribute rather than baked into the emitted JavaScript. That keeps the
+ * script identical for every page (one cache entry, one signature) and keeps
+ * ALL author-supplied prose inside React's JSX escaping.
+ *
+ * ## The same PIXELS top and bottom. Not the same accessibility tree.
+ *
+ * `position: "both"` used to render two byte-identical strips, and both landed
+ * in the accessibility tree whole. Read linearly, one protected paragraph then
+ * sounded like this:
+ *
+ *   Protected from AI bots. / What does this mean?, button / This text is
+ *   If you use a screen reader, custom font, or translator the text below might
+ *   or a translator? The original is one press away. / Original text, button /
+ *   Copy, button / [silence — the paragraph itself] / Protected from AI bots. /
+ *   What does this mean?, button / The text below is scrambled to protect it from AI
+ *   bots. Uncover it to use a screen reader, a custom font, or a translator."
+ *   one press away. / Original text, button / Copy, button
+ *
+ * Forty-odd words of explanation twice, with the actual content — the thing the
+ * reader came for — as a silent gap in the middle. Multiply by six paragraphs.
+ *
+ * The duplicated BUTTONS are fine and worth keeping: top-and-bottom controls
+ * are an ordinary pattern, both sets drive the same state, and pressing either
+ * is correct. What was not fine was duplicating the PROSE, which carries no
+ * action and cannot be skipped past without also skipping the controls. So the
+ * bottom strip keeps every pixel and gives up its share of the tree: its
+ * sentence, its status chip and its toast are `aria-hidden`, and it renders
+ * neither the info button nor the clipped full explanation at all. What reaches
+ * a listener at the bottom of the box is three buttons, which is what a
+ * repeated toolbar should be.
+ */
+function NoticeStrip({
+  where,
+  firstOnPage,
+  sayId,
+  attr,
+  notice,
+  ordinal,
+  noun,
+}: {
+  where: "top" | "bottom";
+  /** True only for the lead strip of the FIRST notice on the page. */
+  firstOnPage: boolean;
+  /** id of the sentence, so the controls can point their description at it. */
+  sayId: string;
+  attr: string;
+  notice: ReturnType<typeof resolveNotice>;
+  ordinal: number;
+  noun: string;
+}) {
+  /** The strip that owns the explanation. The other one is furniture. */
+  const lead = where === "top";
+  /**
+   * Every action button's accessible name ends with the block it acts on.
+   *
+   * This is the lesson `puzzleLabel` learned in the older clipped path and the
+   * drawn notice then dropped on the floor: a six-paragraph article rendered
+   * TWELVE buttons named exactly "Original text", so a reader pulling up a list
+   * of form controls — NVDA's Insert+F7, VoiceOver's rotor, JAWS's Insert+F5,
+   * the fastest way any of them moves around a page — got a column of identical
+   * rows and no way to tell which paragraph any of them belonged to.
+   *
+   * The visible label stays the first thing in the name, so SC 2.5.3 (Label in
+   * Name) holds: speech-input users can still say "click Original text".
+   */
+  // Every control's NAME carries the fact, not just the verb. A name is the one
+  // thing a screen reader never suppresses; the full sentence rides along as
+  // the description, which many readers never hear at default verbosity. So
+  // "Get text" becomes "Get text, protected from AI bots, paragraph 2" — the
+  // reader learns what this is from the control itself, however they arrived.
+  // THE WHOLE SENTENCE GOES IN THE NAME, on the first block of the page.
+  //
+  // Three placements were tried and only this one is actually heard:
+  //
+  //   a real text node      Tab cannot reach prose at all, and arrowing onto it
+  //                         makes VoiceOver read its own chrome first ("you are
+  //                         currently on a selectable text") around the words.
+  //   aria-describedby      a DESCRIPTION is supplementary; VoiceOver and NVDA
+  //                         both suppress it at default verbosity, so a reader
+  //                         lands on the button and hears the action only.
+  //   the NAME              never suppressed. A control without a name is
+  //                         unusable, so no screen reader is free to skip it.
+  //
+  // It is long, and that is the trade being made deliberately: a sentence a
+  // reader hears is worth more than a shorter one they do not. Only the FIRST
+  // block on the page pays it — every block after says the short gist instead,
+  // because a nine-paragraph article that recites the whole explanation before
+  // every button is an obstacle, not an accommodation.
+  //
+  // Action and position lead, so the reader knows what they have landed on
+  // before the explanation starts.
+  // The spoken name may elaborate on the visible label, but it must BEGIN with
+  // it — SC 2.5.3, so "click Uncover" works in voice control. An author who
+  // renames the button without renaming its long form gets their own words
+  // back rather than a name that no longer matches what they can see.
+  const spokenShow = notice.labels.showLong.startsWith(notice.labels.show)
+    ? notice.labels.showLong
+    : notice.labels.show;
+  const named = (label: string) =>
+    `${label === notice.labels.show ? spokenShow : label}, ${notice.labels.gist}`;
+  const openSay = "You are now reading the original text.";
+  // The chip's first words, before the device has been measured. Same string
+  // the script writes once it has a number, so the wording never changes under
+  // the reader mid-wait — only a duration is appended.
+  const cfgMeasuring = "Loading text…";
+  const strip = {
+    [`${attr}-strip`]: where,
+    [`${attr}-locked-say`]: notice.text,
+    [`${attr}-broken-say`]: notice.brokenText,
+    [`${attr}-open-say`]: openSay,
+    // TWO ATTRIBUTES DELETED HERE, and one of them mattered.
+    //
+    // `-measuring` held "Loading text…" and `-progress-label` held a whole
+    // sentence — "Showing the original text for paragraph 2" — one per block,
+    // in the HTML, in English. The emitted script reads NEITHER: the loading
+    // line is rendered directly into `-est`, and the progress bar is
+    // aria-hidden so it has no name to give. They were paid for on every
+    // wrapped block and consumed by nothing.
+    //
+    // A stray English sentence is the most expensive kind of dead code this
+    // package can ship. setCamouflage() renames the attribute around it and
+    // cannot touch the sentence inside, so it is a fingerprint that survives
+    // every measure taken against fingerprints.
+    // The tooltip has something to say in BOTH states. While protected it
+    // explains why copy behaves oddly; once open it explains that it no longer
+    // does, and how to go back — which is the question a reader actually has
+    // at that point.
+  } as Record<string, string>;
+
+  return (
+    <div {...strip}>
+      <span {...({ [`${attr}-say`]: "" } as Record<string, string>)}>
+        {/*
+          The state, as a glyph, leading the sentence it describes. A shield
+          while the text is protected; a CROSSED shield once the original is on
+          screen — the pair reads as one thing switched off, where a checkmark
+          would have read as a task completed, which is the wrong idea for a
+          state the reader can switch back.
+          Both are aria-hidden: the sentence beside them already says which
+          state this is, and the live region announces the transition, so a
+          third telling is noise to the reader who needs the first two.
+        */}
+        <span aria-hidden="true" {...({ [`${attr}-icon`]: "on" } as Record<string, string>)}>
+          <Icon d={ICONS.shield} />
+        </span>
+        <span hidden aria-hidden="true" {...({ [`${attr}-icon`]: "off" } as Record<string, string>)}>
+          <Icon d={ICONS.shieldOff} />
+        </span>
+        {/*
+          THE WHOLE SENTENCE, VISIBLE, IN THE BAR.
+
+          This replaced a short teaser plus an info button that revealed the
+          rest. Three reasons it went:
+
+          1. The maintainer asked for it: "put the whole sentence in there, no
+             abridged sentence hidden into an info icon anymore."
+          2. It is the only arrangement where the explanation exists in exactly
+             ONE place. The teaser version had the same forty words in the
+             frame's accessible name, in the tooltip, and in a clipped copy, and
+             keeping those three from being announced twice took a synchroniser
+             that had already got it wrong once.
+          3. An explanation behind a disclosure is an explanation most people
+             never read, and the readers who need this one most — screen reader,
+             custom font, translator — are the least likely to hover an icon.
+
+          The frame's accessible name is now a SHORT identifier, because this
+          node is read on entry anyway; putting the sentence in both is the
+          double-announcement the maintainer asked us to stop.
+        */}
+        <span
+          id={lead ? sayId : undefined}
+          {...(lead
+            ? { tabIndex: 0, role: "note" as const }
+            : { "aria-hidden": "true" as const })}
+          className={`${attr}-say-full`}
+          {...({ [`${attr}-say-full`]: "" } as Record<string, string>)}
+        >
+          {notice.text}
+        </span>
+        {/*
+          Copy confirmation, laid OVER the sentence rather than beside it, so
+          the strip never changes height when it appears. aria-hidden because
+          the live region already announces the same fact — this is the visual
+          half of an announcement that is already being made properly.
+        */}
+        {/*
+          THE LOADING STATE, laid over the sentence for the same reason the
+          toast is: the sentence keeps its height while the bar covers it, so
+          pressing the button cannot move the row under the reader's cursor.
+        */}
+        <span
+          hidden
+          {...({ [`${attr}-prog`]: "" } as Record<string, string>)}
+          {...(lead ? {} : { "aria-hidden": "true" as const })}
+        >
+          {/*
+            THE PROGRESS BAR IS aria-hidden, and this reverses a decision made
+            here on purpose, so it needs the argument spelled out.
+
+            The old reasoning — "<progress> does not announce on its own, so it
+            costs a screen-reader user nothing and lets them query exact
+            progress on demand" — is true of VoiceOver, which is the only
+            screen reader this package has ever been tested with. It is not
+            true of NVDA, whose "Progress bar output" preference ships set to
+            "Beep": NVDA plays a rising tone on every reported value change of
+            a progress bar. This one is driven ~200 times over a wait that
+            defaults to twenty seconds. That is not a progress indicator, it is
+            twenty seconds of beeping over the top of a live region trying to
+            tell someone what is happening, and NVDA is around two thirds of
+            the screen readers in use.
+
+            What is lost is querying exact progress on demand. What replaces it
+            is the estimate beside the bar, which stays in the tree — so a
+            listener who goes looking during the wait finds "About 20 seconds"
+            in words rather than a number they would have had to poll for.
+
+            REASONED, NOT VERIFIED: nobody has run NVDA against this build. If
+            someone does and the beeping is not there, delete the aria-hidden
+            and this comment with it.
+          */}
+          <progress
+            max={100}
+            value={0}
+            aria-hidden="true"
+            aria-label={named(notice.labels.progress)}
+          />
+          <span {...({ [`${attr}-est`]: "" } as Record<string, string>)}>{cfgMeasuring}</span>
+        </span>
+        <span aria-hidden="true" {...({ [`${attr}-toast`]: "" } as Record<string, string>)}>
+          Copied to clipboard
+        </span>
+      </span>
+      <span {...({ [`${attr}-acts`]: "" } as Record<string, string>)}>
+        <ActionButton
+          attr={attr}
+          act="copy"
+          icon={ICONS.copy}
+          name={named(notice.labels.copy)}
+        />
+        {/*
+          NO RESTORE BUTTON. It offered to put the protected version back once
+          the original was on screen — a control whose whole function is to take
+          away the words the reader just waited for. A reload restores
+          protection for anyone who wants it.
+        */}
+        <ActionButton
+          attr={attr}
+          act="show"
+          primary
+          icon={ICONS.eye}
+          label={notice.labels.show}
+          name={
+            // The wait is mentioned ONCE per page, not once per block: a reader
+            // meeting this for the first time needs to know the button costs
+            // them a few seconds, and the same reader on paragraph nine does
+            // not. The live region still reports the measured estimate on every
+            // block — this is only the warning before it.
+            firstOnPage
+              ? `${named(notice.labels.show)}, takes a few seconds`
+              : named(notice.labels.show)
+          }
+        />
+      </span>
+    </div>
+  );
+}
 
 function renderPuzzle(
   seconds: number | undefined,
@@ -1826,7 +2494,6 @@ function renderPuzzle(
   // inline style outranks any author rule that is not `!important`, and the
   // solver's show() clears both together. Found by looking at a real page; no
   // markup assertion would have caught it.
-  const OFF: CSSProperties = { display: "none" };
 
   return (
     <>
@@ -1840,14 +2507,43 @@ function renderPuzzle(
         can, and the live status line replaces it with a real per-device
         measurement within ~80 ms of the press anyway.
       */}
-      <button type="button" hidden style={OFF} className={`${attr}-alt-btn`} {...buttonMark}>
-        {label ?? puzzleLabel(tag, ordinal, target)}
-      </button>
+      <span {...({ [`${attr}-acts`]: "" } as Record<string, string>)}>
+        {/*
+          The SAME subcomponent the drawn strip uses, not a lookalike. This
+          button was hand-rolled here and drifted: no icon, a different type
+          size, a different shape, different padding. One <ActionButton> means
+          the clipped control and the strip control cannot disagree again — a
+          change to the shape of an uncover button is a change in one place.
+        */}
+        <ActionButton
+          attr={attr}
+          act="show"
+          primary
+          hidden
+          off
+          icon={ICONS.eye}
+          label={label ?? "Uncover"}
+          name={label ?? puzzleLabel(tag, ordinal, target)}
+          extra={buttonMark}
+        />
+      </span>
+      {/*
+        aria-hidden, and the reasoning is the one the wrapper's progress bar
+        already carries — it was simply never ported to this path. "It does not
+        announce on its own" is true of VoiceOver, the only reader this path has
+        ever been tested against. NVDA ships "Progress bar output: Beep" ON by
+        default and plays a rising tone on every value change, and the solver
+        drives roughly 200 of them across a 5-20 second wait. That is twenty
+        seconds of beeping over the top of the polite live region trying to
+        explain what is happening. Nothing is lost by hiding the bar: the
+        estimate and the milestones are spoken by the status line.
+      */}
       <progress
         max={100}
         value={0}
         hidden
         style={OFF}
+        aria-hidden="true"
         aria-label="Decoding progress"
         {...({ [`${attr}-bar`]: "" } as Record<string, string>)}
       />
@@ -1939,6 +2635,10 @@ export function Shield(props: ShieldProps) {
     style,
     rotate,
     a11y,
+    notice,
+    screenReader,
+    explain,
+    copyPaste,
     children,
   } = props;
 
@@ -2037,7 +2737,57 @@ export function Shield(props: ShieldProps) {
   // plain text is on screen), so only that mode pays for one. Claiming an ID
   // unconditionally would advance the pass counter for every shield on the page
   // and stamp IDs into markup that has no use for them.
-  const usesPuzzle = a11y?.mode === "text";
+  // ---- RESOLVE THE THREE SWITCHES ----------------------------------------
+  //
+  // `a11y` and `notice` are the 0.3.x spellings and still work; `screenReader`
+  // / `explain` / `copyPaste` are the ones that separate the three costs. Where
+  // both are given the NEW prop wins, because it is the more specific
+  // statement of intent.
+  //
+  // The default for `screenReader` is TRUE, and that is a deliberate change of
+  // posture: a block whose alternative is opt-in ships inaccessible for every
+  // author who never read the docs, which is most of them. `a11y:{mode:"none"}`
+  // and `screenReader:false` are the two ways to say no, and both are explicit.
+  // ONE DERIVATION, USED EVERYWHERE. This used to be computed twice — once here
+  // as `srExplicit` (new prop wins) and once further down as `effectiveA11y`
+  // (old prop wins) — and the two disagreed. The throws were keyed on the
+  // first; what actually rendered came from the second. Three configurations
+  // fell through the gap, all verified:
+  //
+  //   copyPaste + screenReader + a11y:{mode:"none"}
+  //     -> no seal, no control, but the clipboard sentence shipped anyway:
+  //        a greppable English string naming the mechanism, on a block with
+  //        nothing for it to do.
+  //   screenReader:false + a11y:{mode:"text"}
+  //     -> rendered a seal AND a control despite the switch being off, and the
+  //        block got no `id`, so the control pointed at nothing.
+  //   notice:true + screenReader:false
+  //     -> silently no wrapper and no throw, because the guard tested `explain`
+  //        before `notice` had been folded into it.
+  //
+  // Deriving the config once and keying everything — guards, seal, render — off
+  // that single value is what closes all three. Precedence is unchanged and is
+  // still what the comment above documents: the newer, more specific prop wins.
+  // `screenReader` MERGES OVER `a11y`, it does not replace it. This used to
+  // rebuild `{ mode: "text", seconds }` from scratch whenever `screenReader`
+  // was present, which silently threw away `reveal`, `label`, `note` and
+  // `visualHidden` from an `a11y` object sitting right beside it. Adding
+  // `screenReader` to be explicit about a config you already had is an entirely
+  // reasonable edit, and it quietly changed the rendered page with no warning
+  // and no throw — the exact failure class the guards below exist to close.
+  const srObj = typeof screenReader === "object" ? screenReader : undefined;
+  const base: ShieldA11y | undefined =
+    a11y !== undefined && a11y.mode === "text" ? a11y : undefined;
+  const resolvedA11y: ShieldA11y | undefined =
+    screenReader !== undefined
+      ? screenReader === false
+        ? undefined
+        : { ...(base ?? {}), mode: "text", seconds: srObj?.seconds ?? base?.seconds }
+      : a11y !== undefined
+        ? a11y
+        : { mode: "text" };
+  const usesPuzzle = resolvedA11y?.mode === "text";
+  const srSeconds = resolvedA11y?.mode === "text" ? resolvedA11y.seconds : undefined;
   const { id: blockId, ordinal } = usesPuzzle
     ? blockIdFor(content as string, nounFor(typeof Tag === "string" ? Tag : null))
     : { id: "", ordinal: 1 };
@@ -2050,14 +2800,146 @@ export function Shield(props: ShieldProps) {
   // plaintext is legitimately in play: it goes in, ciphertext comes out, and
   // only the ciphertext reaches the JSX. Nothing here puts the plaintext in the
   // markup, and `puzzle.test.ts` asserts it.
-  const alt = renderA11y(
-    a11y,
-    typeof Tag === "string" && INLINE_TAGS.has(Tag),
-    children,
-    blockId,
-    typeof Tag === "string" ? Tag : null,
-    ordinal,
-  );
+  // The DRAWN notice replaces the clipped control entirely — rendering both
+  // would give a screen reader two ways to do the same thing, one of which it
+  // would announce as an unexplained extra button.
+  // The same treatment for `copyPaste`, and for a stronger reason than
+  // `explain` has. A wrapper with no seal is a control that does nothing; copy
+  // mediation with no seal is a control that does something WRONG — it takes a
+  // reader's paste away and hands back a sentence pointing at a way out that
+  // does not exist on this page. "Punishing the reader" was rejected once
+  // already, and shipping it silently is how it would come back.
+  //
+  // Keyed on `usesPuzzle` rather than on the two spellings `explain` checks,
+  // because there is a third way to have no seal: `a11y={{ mode: "audio" }}`
+  // renders a player and seals nothing. That case fell through the explain
+  // check too; this one names it.
+  if (copyPaste !== undefined && copyPaste !== false && !usesPuzzle) {
+    throw new Error(
+      `${camo.logPrefix} <Shield> was given copyPaste with the accessible path turned off. ` +
+        `Copy mediation replaces a paste with a sentence telling the reader how to get the ` +
+        `real words, and without a seal there is nothing for that sentence to point at. ` +
+        `Either remove screenReader={false} / a11y={{ mode: "none" }} / a11y={{ mode: "audio" }}, ` +
+        `or remove copyPaste.`,
+    );
+  }
+
+  // THE DEFAULT IS THE WRAPPER. `explain` used to default to false and this
+  // line read `explain !== undefined ? explain : notice` — a bare <Shield>
+  // drew nothing, on the reasoning that the wrapper's plain English is the one
+  // thing setCamouflage() cannot hide and so should be opted into.
+  //
+  // That reasoning is still true and the trade has been made the other way,
+  // deliberately. The wrapper is now FULL, the recommended tier, because the
+  // three people this library keeps meeting — someone on a screen reader,
+  // someone using a custom reading face, someone reaching for a translator —
+  // cannot act on a control that was never drawn, and a page that silently
+  // gives them the wrong words is a page that failed them to inconvenience a
+  // crawler. The tiers below the default are all still one prop away, and the
+  // table in docs/plain-text-mode.md is what they cost.
+  //
+  // `notice` is the legacy spelling and still wins where it is passed.
+  // Defaulting to `usesPuzzle`, NOT to `true`. The guard below throws when a
+  // wrapper is asked for with no seal to open, and `true` would have made
+  // <Shield screenReader={false}> — the Sealed tier, a legitimate choice —
+  // throw on its own default. The tier with nothing to reveal draws nothing.
+  const explainProp =
+    explain !== undefined ? explain : notice !== undefined ? notice : usesPuzzle;
+
+  // FAIL LOUD on the combinations that cannot mean anything. Both are keyed on
+  // `usesPuzzle` — the single resolved config — so they fire for every spelling
+  // of "off" (screenReader:false, a11y:{mode:"none"}, a11y:{mode:"audio"}) and
+  // for every spelling of the thing being asked for (explain OR notice).
+  if (explainProp !== undefined && explainProp !== false && !usesPuzzle) {
+    throw new Error(
+      `${camo.logPrefix} <Shield> was given ${explain !== undefined ? "explain" : "notice"} ` +
+        `(the visible wrapper) with the accessible path turned off. The wrapper's buttons ` +
+        `open the sealed original, so without a seal there is nothing for them to do and no ` +
+        `wrapper is drawn. Either remove screenReader={false} / a11y={{ mode: "none" }}, or ` +
+        `remove ${explain !== undefined ? "explain" : "notice"}.`,
+    );
+  }
+  if (copyPaste !== undefined && copyPaste !== false && !usesPuzzle) {
+    throw new Error(
+      `${camo.logPrefix} <Shield> was given copyPaste with the accessible path turned off. ` +
+        `Copy mediation needs the sealed original: without it the reader can only ever be ` +
+        `handed a notice pointing at a door that does not exist, which is worse for them and ` +
+        `no obstacle at all to a crawler. Either remove screenReader={false} / ` +
+        `a11y={{ mode: "none" }}, or remove copyPaste.`,
+    );
+  }
+  // AN INLINE SHIELD NEVER GETS THE DRAWN WRAPPER, even now that the wrapper is
+  // the default. The frame is a <div> containing <div> strips and a whole
+  // paragraph of furniture; dropped inside a <p>, the parser closes the
+  // paragraph early, the host sentence is torn in two with a bordered box
+  // between the halves, and the parsed DOM stops matching the server HTML —
+  // a hydration mismatch on top of a broken layout.
+  //
+  // This did not matter while `explain` was opt-in: nobody asks for a box round
+  // three words mid-sentence. It matters enormously as a default, because every
+  // <Shield as="span"> that already exists would get one without being changed.
+  // Inline blocks keep the clipped control, which is phrasing content and fits
+  // where they sit. Explicitly asking for `explain` on an inline tag throws
+  // below rather than being silently ignored.
+  const inlineTag = typeof as === "string" && INLINE_TAGS.has(as);
+  if (inlineTag && explain !== undefined && explain !== false) {
+    throw new Error(
+      `${camo.logPrefix} <Shield as="${as}"> cannot draw the explanation wrapper. ` +
+        `The wrapper is a block-level box — a <div> with strips and buttons — and putting ` +
+        `one inside a paragraph splits the sentence around it and breaks hydration. Use a ` +
+        `block tag, or drop explain to keep the off-screen control this tag already has.`,
+    );
+  }
+  const wantsNotice =
+    !inlineTag && explainProp !== undefined && explainProp !== false && usesPuzzle;
+  const cfg = wantsNotice
+    ? resolveNotice(explainProp === true ? {} : (explainProp as ShieldNotice))
+    : null;
+  // COPY MEDIATION IS INDEPENDENT OF THE WRAPPER, and defaults on wherever
+  // there is a seal. It used to follow `explain` — `: wantsNotice` — which
+  // made `explain={false}` quietly drop the clipboard notice as well, so the
+  // tier called INVISIBLE was really MINIMAL and nobody could ask for the
+  // middle rung. Writing the tier table in docs/plain-text-mode.md is what
+  // surfaced it.
+  //
+  // Following `explain` was also backwards on the merits. A selection that
+  // lands fluent, grammatical, WRONG English in someone's notes costs a human
+  // something and costs a crawler nothing — it is the one behaviour in this
+  // library that deters no bot at all. It should not be switched off as a side
+  // effect of a decision about whether to draw a box.
+  const copyOn = copyPaste !== undefined ? copyPaste !== false : usesPuzzle;
+  // Two sentences, because they are addressed to two different situations. With
+  // a wrapper drawn there is a button on screen and the notice can name it;
+  // without one, naming a button nobody can see is a self-contradiction, so the
+  // standalone sentence describes the control that is actually there — clipped,
+  // just before the block, reachable by Tab or a screen reader.
+  const copyNoticeText =
+    typeof copyPaste === "object" && copyPaste?.notice
+      ? copyPaste.notice
+      : cfg
+        ? clipboardNotice(cfg.labels.show)
+        : standaloneClipboardNotice();
+  // Copy mediation on the tier with no frame to hang it off. `copyOn` alone is
+  // not enough: inside a wrapper the notice script already owns the listener,
+  // and two handlers on one selection would fight over the same clipboard.
+  const copyStandalone = copyOn && usesPuzzle && !wantsNotice;
+  const emitCopyJs = copyStandalone && claim("solvers", "copy-js");
+
+  // With `screenReader` defaulting on, an author who passes nothing still gets
+  // the sealed alternative — so the omitted-prop case has to resolve to a real
+  // config rather than to `undefined`, which renderA11y treats as "opted out".
+  const effectiveA11y: ShieldA11y | undefined = resolvedA11y;
+
+  const alt = wantsNotice
+    ? null
+    : renderA11y(
+        effectiveA11y,
+        typeof Tag === "string" && INLINE_TAGS.has(Tag),
+        children,
+        blockId,
+        typeof Tag === "string" ? Tag : null,
+        ordinal,
+      );
 
   // Claim this page's font assets. Inside a render pass scope the first
   // <Shield> of a family emits them and the rest emit nothing; with no scope
@@ -2082,7 +2964,223 @@ export function Shield(props: ShieldProps) {
   // button in the document and wires each one. Emitting it per instance would
   // repeat ~5 kB per shield, and the script's own window flag would make every
   // copy after the first a no-op anyway.
-  const emitSolver = usesPuzzle && claim("solvers", "solver");
+  // The clipped-control solver and the drawn notice are alternatives, never
+  // both: each would wire the same sealed payload and race the other to reveal
+  // it. `wantsNotice` shifts this page from one to the other.
+  const emitSolver = usesPuzzle && !wantsNotice && claim("solvers", "solver");
+  const emitAltCss = usesPuzzle && !wantsNotice && claim("styles", "alt-css");
+  const emitNoticeCss = wantsNotice && claim("solvers", "notice-css");
+  const emitNoticeJs = wantsNotice && claim("solvers", "notice-js");
+  // First notice on the page? Only it mentions the wait. Same latch the
+  // font assets use, so it is scoped to the render pass and never leaks
+  // across requests.
+  const firstOnPage = wantsNotice && claim("notes", "wait");
+
+  // Sealed HERE for the notice path, rather than inside renderA11y, because the
+  // frame owns the payload now. Same call, same guarantee: plaintext goes in,
+  // ciphertext comes out, and only the ciphertext reaches the JSX.
+  const sealed = wantsNotice
+    ? sealText(children, { seconds: srSeconds ?? DEFAULT_SECONDS })
+    : null;
+
+  if (wantsNotice && cfg) {
+    const attr = camo.attrName;
+    const noun = nounFor(typeof Tag === "string" ? Tag : null);
+    // The revealed words go into the SAME element type the shield uses, so a
+    // <Shield as="h2"> reveals into an <h2> and the document outline survives.
+    const Out = (typeof Tag === "string" ? Tag : "p") as ElementType;
+    const frameAttrs = {
+      [`${attr}-frame`]: "",
+      // `role="group"` WITH A NAME, on the frame — and yes, this file argues a
+      // hundred lines up for having taken `role="group"` off the OLD clipped
+      // wrapper. Both are right, because they are not the same element.
+      //
+      // That wrapper held a sentence and a button and nothing else. It had no
+      // visual boundary, nothing to be inside OF, and VoiceOver's twenty words
+      // of "you are currently on a button inside of a group, to exit this group
+      // press…" bought a reader nothing they could not already hear.
+      //
+      // This is a drawn box containing a whole paragraph, six buttons and two
+      // strips of furniture, and the price of it having no boundary is that a
+      // listener cannot tell the bottom strip of THIS block from the top strip
+      // of the NEXT one. They sound identical, they are adjacent, and between
+      // them sits an aria-hidden paragraph that makes no sound at all. Somebody
+      // moving by controls has no way to know they have left the block they
+      // thought they were acting on. A named group is exactly the fix for that:
+      // entering says which block you are in, leaving says you have left it.
+      //
+      // The name carries the element type and the ordinal for the same reason
+      // the buttons do — one block must not sound like the next. It also puts
+      // the word "heading" in front of a <Shield as="h2">, which is the only
+      // thing standing between a listener and a document outline with a silent
+      // hole in it. That does not make the heading navigable (see the note
+      // below the a11y section); it makes its absence audible, which is
+      // strictly better than the silence it replaces.
+      //
+      // THE NAME IS AN IDENTIFIER, AND THIS COMMENT USED TO CLAIM OTHERWISE.
+      // It said the name "now carries the DISCLAIMER", which the code has never
+      // done — `labels.group` defaults to "Protected text", so what ships is
+      // "Protected text, paragraph 2". The screen-reader audit caught the
+      // mismatch by reading the name back off a real accessibility tree.
+      //
+      // Identifier is the right answer, and the reason is not "it was already
+      // that way". The disclaimer IS spoken on entry — the sentence in the
+      // strip is a `role="note"` and its own focus stop, which is what four
+      // failed attempts finally produced. Putting the same sentence in the
+      // group name means hearing it twice on the way into every block. A short
+      // boundary plus a sentence on its own stop is one telling, in the right
+      // order.
+      //
+      // WCAG 2.2: this is what makes SC 1.3.1 defensible rather than merely
+      // argued, and it is the SC 2.4.6 story for the block as a whole.
+      role: "group",
+      "aria-label": groupName(cfg.labels.group ?? "Protected text", noun, ordinal),
+      [`${attr}-guard`]: copyOn && cfg.copyGuard ? "1" : "0",
+      [`${attr}-clip`]: copyNoticeText,
+      // EVERY live-region announcement, parked on the element instead of baked
+      // into the emitted script. Two reasons, and the second is the one that
+      // forced it: an author can translate these, and the script stays free of
+      // any sentence that identifies what this page is doing. A script reading
+      // "Done. You are reading the original." is a signature that survives
+      // setCamouflage() untouched — the same rule solver.ts and the font guard
+      // already follow, and the reason they carry no comments either.
+      [`${attr}-says`]: JSON.stringify({
+        working: "Loading text…",
+        keep: "You can keep reading.",
+        pct: "percent.",
+        // Arrives AFTER the words, not before them. The script moves focus to
+        // the revealed text first and lets this land ~300 ms later, because a
+        // focus move cancels speech in flight on every screen reader that has
+        // a virtual buffer — so the old order (announce, then focus) delivered
+        // this sentence to nobody. Reading as a confirmation-plus-next-step
+        // rather than an introduction is what that ordering asks of it.
+        done: "You are now reading the original text.",
+        err: "Something went wrong. You can try again.",
+        copied: "The original is on your clipboard.",
+        // The two toast lines. Same slot, opposite outcomes — green when the
+        // clipboard got the real words, red when it got a notice instead,
+        // because a paste that silently contains the wrong text is the failure
+        // this whole guard exists to make visible.
+        toastCopied: "Copied to clipboard",
+        toastBlocked: "Copy blocked — uncover the text first",
+        copyFail: "Copying didn’t work. Press Copy again.",
+        clipped: `Copied a notice instead. Press “${cfg.labels.show}” to get the real words.`,
+        // No `restored` and no `copiedShort`. The Restore button was removed
+        // (see NoticeStrip) and nothing announces a short copy, so both were
+        // strings shipped in the -says JSON on every block for a script that
+        // never looks them up.
+        insecure: "Showing the original needs a secure (https) connection.",
+        incapable: "This browser can’t show the full text.",
+      }),
+    } as Record<string, string>;
+
+    return (
+      <>
+        {emitStyle ? <style dangerouslySetInnerHTML={{ __html: fontFaceCss(v) }} /> : null}
+        {emitGuard ? (
+          <script
+            dangerouslySetInnerHTML={{
+              __html: fontGuardScript(family, fontHost, fontWeight ?? null, v, DEFAULT_BROKEN),
+            }}
+          />
+        ) : null}
+        {seedScript ? <script dangerouslySetInnerHTML={{ __html: seedScript }} /> : null}
+        {emitNoticeCss ? <style dangerouslySetInnerHTML={{ __html: noticeCss(attr) }} /> : null}
+        {emitNoticeJs ? (
+          <script
+            dangerouslySetInnerHTML={{
+              __html: noticeScript({
+                attr,
+                flag: `${camo.guardFlag}n`,
+                logPrefix: camo.logPrefix,
+                storePrefix: `${attr}-`,
+                family,
+              }),
+            }}
+          />
+        ) : null}
+        <div {...frameAttrs}>
+          <NoticeStrip
+            where="top"
+            firstOnPage={firstOnPage}
+            sayId={`${blockId}-say`}
+            attr={attr}
+            notice={cfg}
+            ordinal={ordinal}
+            noun={noun}
+          />
+          {/*
+            The protected block. Still aria-hidden — a decoy read aloud is worse
+            than silence, because it is fluent, grammatical and wrong. What
+            changed is that the way OUT of the silence is now drawn on screen
+            instead of clipped one pixel wide.
+          */}
+          <Tag
+            {...dataAttrProps}
+            id={blockId || undefined}
+            className={className}
+            style={finalStyle}
+            aria-hidden="true"
+            {...({ [`${attr}-block`]: "" } as Record<string, string>)}
+          >
+            {content}
+          </Tag>
+          {/*
+            THERE IS NO FALLBACK PARAGRAPH HERE ANY MORE. A hidden <p> used to
+            sit in this slot carrying a third copy of the notice sentence, to be
+            swapped in for the block when the font-health probe reported the
+            face missing. The skeleton took that job — the block keeps its box
+            and its height and simply stops showing words — and the swap was
+            deleted from the script long before the element was, so every drawn
+            block has been shipping an element the script's first act is to
+            hide. It cost an element, two stylesheet rules, and a full sentence
+            of English prose in the markup, which is a camouflage signature no
+            hash can rename.
+          */}
+          {/*
+            Empty `dangerouslySetInnerHTML` so React neither hydrates nor
+            reconciles what the script writes here. Without it, a return visit
+            (plain text restored from localStorage before hydration) makes React
+            delete the words a reader waited for, with no console error and no
+            way to self-correct. Same lesson as the font guard's stylesheet.
+          */}
+          <Out
+            hidden
+            tabIndex={-1}
+            style={{ ...finalStyle, fontFamily: "inherit" }}
+            className={className}
+            {...({ [`${attr}-out`]: "" } as Record<string, string>)}
+            dangerouslySetInnerHTML={EMPTY_HTML}
+          />
+          <span
+            aria-live="polite"
+            aria-atomic="true"
+            style={VISUALLY_HIDDEN}
+            {...({ [`${attr}-status`]: "" } as Record<string, string>)}
+            dangerouslySetInnerHTML={EMPTY_HTML}
+          />
+          <script
+            type="application/json"
+            {...({ [`${attr}-data`]: "" } as Record<string, string>)}
+            dangerouslySetInnerHTML={{
+              __html: JSON.stringify(sealed).replace(/</g, "\\u003c"),
+            }}
+          />
+          {cfg.position === "both" ? (
+            <NoticeStrip
+              where="bottom"
+              firstOnPage={false}
+              sayId={`${blockId}-say`}
+              attr={attr}
+              notice={cfg}
+              ordinal={ordinal}
+              noun={noun}
+            />
+          ) : null}
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -2101,7 +3199,7 @@ export function Shield(props: ShieldProps) {
       {emitGuard ? (
         <script
           dangerouslySetInnerHTML={{
-            __html: fontGuardScript(family, fontHost, fontWeight ?? null, v),
+            __html: fontGuardScript(family, fontHost, fontWeight ?? null, v, DEFAULT_BROKEN),
           }}
         />
       ) : null}
@@ -2111,6 +3209,7 @@ export function Shield(props: ShieldProps) {
         The time-lock solver, once per page. Wires every solve button in the
         document, including ones that stream in later.
       */}
+      {emitAltCss ? <style dangerouslySetInnerHTML={{ __html: altCss(camo.attrName) }} /> : null}
       {emitSolver ? (
         <script
           dangerouslySetInnerHTML={{
@@ -2119,6 +3218,22 @@ export function Shield(props: ShieldProps) {
               flag: `${camo.guardFlag}s`,
               logPrefix: camo.logPrefix,
               storePrefix: `${camo.attrName}-`,
+            }),
+          }}
+        />
+      ) : null}
+      {/*
+        Copy mediation without the wrapper: one page-level listener, no state,
+        no sweep, no observer, and no markup beyond the sentence already parked
+        on the block below. It is emitted only when `copyPaste` asked for it, so
+        a page that never mentions the prop is byte-identical to 0.3.1.
+      */}
+      {emitCopyJs ? (
+        <script
+          dangerouslySetInnerHTML={{
+            __html: copyGuardScript({
+              attr: camo.attrName,
+              flag: `${camo.guardFlag}c`,
             }),
           }}
         />
@@ -2142,6 +3257,13 @@ export function Shield(props: ShieldProps) {
 
         `id` is present only in the puzzle mode, which needs to address this
         block to hide it once the real words are on screen.
+
+        The `-clip-say` attribute is the ENTIRE per-block cost of standalone copy
+        mediation: one sentence, present only when `copyPaste` is on. The
+        listener finds its blocks by querying for this attribute at copy time,
+        which is also why blocks that stream in later need no wiring. It is a
+        string a crawler can match on, like every other author-facing sentence
+        in this package — that trade is stated in the prop's own doc comment.
       */}
       <Tag
         {...dataAttrProps}
@@ -2149,6 +3271,9 @@ export function Shield(props: ShieldProps) {
         className={className}
         style={finalStyle}
         aria-hidden="true"
+        {...(copyStandalone
+          ? ({ [`${camo.attrName}-clip-say`]: copyNoticeText } as Record<string, string>)
+          : {})}
       >
         {content}
       </Tag>

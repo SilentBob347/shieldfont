@@ -5,19 +5,140 @@ shielded block. The words ship inside the page, encrypted, and the reader's own
 browser grinds out the key on request — a few seconds of work on a desktop,
 once, per block.
 
-By default nothing about the page changes on screen. The control is
-screen-reader-only, and so are the words it unlocks.
+## Where this stands
 
-This page explains what it does, what it costs, what it does not fix, and how
-the numbers were chosen.
+First of all this is a new challenging approach and it is in an early stage and
+we don't yet have all the answers, Sway.
+
+Accessibility is a complicated and unsolved problem everywhere in the world, and
+this project can only 80/20 it. What follows is what we chose, what it costs,
+and where it is still wrong — not a claim to have solved anything.
+
+**A principle: for now, everyone sacrifices a little for the common good.** Some
+people will take a few extra seconds to copy and paste. Screen readers will have
+to wait for a puzzle to grind. That is a real cost and it is spread on purpose,
+because the alternative is a page that works perfectly for most people by
+failing completely for a few.
+
+**But some things would have been unacceptable.** A screen reader reading out
+gibberish. Someone using a custom face — dyslexia-friendly, high-contrast,
+larger — getting scrambled text and never being told that is what happened. Both
+of those are silent failures: the reader has no way to know the page is lying to
+them, so they blame themselves or the writer.
+
+That is why the wrapper exists, and why it is the default and the recommended
+approach. It is the only arrangement where nobody is quietly misled.
+
+**We do not want to be prescriptive about accessibility.** You know your
+audience and your application, and you may reach it in ways this library does
+not offer — pairing a shielded block with an audio reading, for instance. The
+role of these docs is to give you a few things to think about if you want to do
+something of your own. If you want a ready-to-go packaged solution, the full
+wrapper is here, with its limitations stated.
+
+---
+
+**Since 0.3.2 this is on by default, and it draws something.** A bare
+`<Shield>` now renders the FULL tier: an outline round the block and a strip
+carrying one sentence and two buttons. Earlier versions drew nothing and put
+the control off-screen where only a screen reader could reach it; the four
+tiers below include that arrangement, and the section after them says why it
+stopped being the default.
+
+This page explains what each tier does, what it costs, what it does not fix,
+and how the numbers were chosen.
 
 ```tsx
 import { Shield } from "@shieldfont/react";
 
-<Shield a11y={{ mode: "text" }}>{body}</Shield>
+<Shield>{body}</Shield>
 ```
 
 That is the whole API. Nothing to generate, nothing to host, no server.
+
+---
+
+## The four tiers
+
+Three independent switches — `screenReader`, `explain`, `copyPaste` — make four
+combinations anyone actually ships. There is no `tier` prop; these are names for
+combinations, not an enum.
+
+```tsx
+<Shield>{body}</Shield>                                        // FULL
+<Shield explain={false}>{body}</Shield>                        // INVISIBLE
+<Shield explain={false} copyPaste={false}>{body}</Shield>      // MINIMAL
+<Shield screenReader={false}>{body}</Shield>                   // SEALED SHUT
+```
+
+### What each one does
+
+| | **FULL** *(default)* | **INVISIBLE** | **MINIMAL** | **SEALED SHUT** |
+|---|---|---|---|---|
+| **Screen readers** | Reads the sentence on its own focus stop, then two named buttons. Pressing Uncover grinds the puzzle and the real words are announced. | Identical. The control is real and focusable, clipped off-screen — a listener cannot tell this tier from FULL. | Identical to INVISIBLE. | **Nothing.** The block is `aria-hidden` with no alternative. A reader passes it in silence and is never told there was anything there. |
+| **Missing font** | The strip's sentence swaps to the font-missing wording, the paragraph becomes a skeleton, and the same Uncover button is right there. | The clipped control un-clips itself and draws the identical row — shield, sentence, Uncover — with no box around it. | Same as INVISIBLE. | **Decoy words, in a fallback face.** Fluent, grammatical, wrong English, with nothing on screen to say so. |
+| **localStorage** | One key per block once solved, holding the puzzle's **answer** — a number, not your text. Reopening is instant; the eraser in the demo bar clears them. | Same. | Same. | **Nothing stored.** There is no puzzle, so there is no answer to keep. |
+| **Settings** | `screenReader` · `explain` · `copyPaste` — all three default on. | `explain={false}` and nothing else. `copyPaste` is independent of the wrapper, so it stays on. | `explain={false} copyPaste={false}` | `screenReader={false}`; the other two throw if passed, because there is nothing for them to open. |
+
+### What each one costs
+
+| | FULL | INVISIBLE | MINIMAL | SEALED SHUT |
+|---|---|---|---|---|
+| **On screen** | An outline and a strip. | Nothing. | Nothing. | Nothing. |
+| **Markup, one block** | 48 elements, 6.8 kB | 8 elements, 2.3 kB | 8 elements, 2.3 kB | 1 element, 274 bytes |
+| **Matchable English** | The whole sentence, the button words, the clipboard notice. | The note and the button name (`"scrambled"`, `"Uncover the plain text"`), plus the clipboard notice. | The note and the button name. | **None.** Nothing a crawler can pattern-match on. |
+| **Copy & paste** | A selection touching protected text lands a short notice saying how to get the real words. | Same. | **Decoy words, silently.** The reader pastes fluent nonsense into their notes and finds out later, or never. | Decoy words, silently. |
+| **WCAG 2.2** | Passes. | Passes. | Passes. | **Fails SC 1.3.1** — what a sighted reader perceives is not programmatically available. Under the EU Accessibility Act or the ADA Title II web rule that is a procurement blocker, not an ethics question. |
+
+### Why FULL is the default
+
+It was not, in 0.3.0 and 0.3.1. A bare `<Shield>` drew nothing, on the reasoning
+that the wrapper's plain English is the one thing `setCamouflage()` cannot
+rename — it renames attributes and font families, not prose — and so should be
+opted into deliberately.
+
+That reasoning is intact. The conclusion changed, because of who pays.
+
+This library exists to deter **bots**. Every tier below FULL spends a **human's**
+time to do it, and there are three of them:
+
+- the reader on a screen reader, who hears silence where a paragraph was;
+- the reader using their own typeface — dyslexia-friendly, high-contrast, larger
+  — whose stylesheet overrides ours and turns the page to gibberish;
+- the reader who selects a quote for a translator or their notes and gets fluent
+  nonsense with nothing to explain it.
+
+FULL is the only tier where none of those three is worse off. A crawler is no
+better off under FULL than under MINIMAL: the words are sealed identically, and
+what FULL adds is a sentence and two buttons — an obstacle to concealment, never
+to the seal.
+
+**MINIMAL is documented rather than recommended.** Its distinguishing behaviour
+is that copying gives a human decoy words with no notice, which costs a person
+something and costs a crawler nothing.
+
+**SEALED SHUT is documented rather than hidden.** It is a real choice with a
+real reason — maximum concealment, no signature at all — and a library that hid
+its worst option would not be trustworthy about its best one. Know what you are
+choosing: it fails an accessibility requirement that is law in several places.
+
+### One thing no tier fixes
+
+A reader who forces their own font can be **detected**, but only partly. If a
+user stylesheet or an extension replaces the family for the whole block, the
+substitution is measurable: the shielded face and the fallback produce different
+text widths, and identical widths mean ours was not used. Note that
+`document.fonts.check()` does **not** catch this — the face is loaded, just
+unused, so it answers "yes" while the reader looks at gibberish.
+
+What cannot be detected is **per-glyph fallback**: the face used for most of a
+run with one missing character silently substituted. No page-visible API reports
+the font actually used to draw a glyph. `CSS.getPlatformFontsForNode` knows, and
+is DevTools-protocol only; `queryLocalFonts()` needs a permission prompt and
+answers a different question — what is installed, not what was used.
+
+This is the strongest argument for FULL. A drawn control does not need to detect
+anything: it is already there when the reader needs it.
 
 ---
 
@@ -27,7 +148,16 @@ A shielded block holds a decoy. The HTML says one thing, the font draws
 another. Reading the decoy aloud would be worse than silence — it is fluent,
 grammatical, *wrong* English, and nothing about it announces itself as broken —
 so `<Shield>` marks the block `aria-hidden="true"` and assistive technology
-skips it.
+skips it in linear and heading navigation.
+
+**Skipped is not the same as unreachable, and the docs used to claim it was.**
+`aria-hidden` governs the reading order; it does not erase the words from the
+page. NVDA's mouse-tracking and screen-review modes, and touch exploration on
+iOS and Android, walk the DOM by screen position, and a reader using any of them
+can land on a decoy word and hear it. So "nobody hears a decoy" was too strong:
+what is true is that nobody hears one while reading the page the ordinary way.
+A reader reported the exploration case in
+[#2](https://github.com/isaqueseneda/shieldfont/issues/2).
 
 Skipping is not a fix either. What a sighted reader perceives is then not
 programmatically available at all, which fails WCAG 2.2 SC 1.3.1.
@@ -155,19 +285,25 @@ crawler. 2048 bits is the sweet spot.
 
 ## What the reader hears
 
+> **This section describes the INVISIBLE tier** — `<Shield explain={false}>`.
+> It was written when that was the default. FULL draws the same control in a
+> visible strip; everything below about what is *spoken* applies to both, and
+> everything about what is *not drawn* applies only here.
+
 Everything below was shaped by listening to it. The first version passed its
 markup tests and was unpleasant to use; most of these decisions exist because of
 a specific sentence heard in a real VoiceOver session.
 
-### The control is invisible by default
+### On this tier the control is invisible
 
 The note and the button are clipped off-screen and left in the accessibility
 tree. A sighted reader can already read the block perfectly — the font does that
 work — so a note explaining an unlocking mechanism, attached to text that looks
 fine, is an unexplained widget and nothing else.
 
-`visualHidden` defaults to `true` for `mode: "text"` and `false` for
-`mode: "audio"`, where a player nobody can see is a player nobody can press.
+That argument holds for the reader who can see the words. It does not hold for
+the reader whose custom typeface has turned them to gibberish, or who reaches
+for copy-paste, and that is why FULL exists and is now the default.
 
 ### The cost of that: keyboard focus disappears
 
@@ -204,12 +340,15 @@ move around a page — still finds it. An earlier cut always used a `<p>` and
 silently dropped the outline. (A custom component in `as` cannot be mirrored, so
 it falls back to `<p>`, or `<span>` inline.)
 
-### Every button has a different name
+### Every button has the same name, on purpose
 
-The default accessible name is built from the element type and the block's
-position on the page:
+> Uncover the original text (up to 20 seconds)
 
-> Unlock the plain text for paragraph 2 (up to 20 seconds)
+**This inverted in 0.3.2 and the reason is worth stating.** The name used to
+carry the element type and the block's position — "Unlock the plain text for
+paragraph 2" — so that a listener meeting four buttons could tell them apart.
+Then unlocking became page-wide: pressing any one button opens every block. Four
+different names would describe four different actions where there is one.
 
 The noun comes from `as`: heading, paragraph, quote, list item, caption, or
 **section** for anything else (including the default `<div>`). The number counts
@@ -228,12 +367,12 @@ any scraper for free — the same free bypass as the `href` that was removed.
 
 The first text-mode block on a page gets the full explanation:
 
-> This text is scrambled and is not read aloud. Unlock the real words with the
-> button below.
+> If you use a screen reader, custom font, or translator, the text below might
+> appear scrambled. Uncover to see the original.
 
 Every block after it gets the short form:
 
-> Scrambled text. Unlock the real words below.
+> Scrambled text. Uncover the original below.
 
 Measured over a multi-block page, the full sentence is spoken in its entirety
 for every block, so a six-block article makes somebody listen to the same
@@ -253,9 +392,10 @@ is an obstacle. `note` overrides the sentence for one block.
    before it — VoiceOver read the estimate back as "working this" before 25
    percent killed it.
 4. The words arrive. In hidden mode the status line says "Done."; in visible
-   mode, "Done. The plain text is shown below."
-5. The result is cached in that browser. On a return visit the words are already
-   there, the status line says "Plain text ready.", and nothing takes focus.
+   mode, "Done. The text is shown below."
+5. The **answer** is cached in that browser — a number, not your article. On a
+   return visit the words are already there, the status line says "The text is
+   ready.", and nothing takes focus.
 
 Details that matter, and why:
 
@@ -389,6 +529,19 @@ list as a conformance claim.
 
 Said plainly, because the launch should not claim otherwise:
 
+- **It is not conformance, and it never becomes conformance.** A protected block
+  fails WCAG 2.2 SC 1.3.1 with this mode on. The words are not programmatically
+  determinable; they are obtainable, after 5–20 seconds of the reader's CPU,
+  with JavaScript. No auditor is obliged to accept that as equivalent and we do
+  not ask them to. What this mode buys is that the words are always *reachable*
+  by a human who wants them. That makes a protected page humane. It does not
+  make it compliant, and nothing in `@shieldfont/react` should ever be described
+  as making a site legally accessible. See
+  [the accessibility warning](../README.md#-read-this-first-shieldfont-breaks-accessibility).
+- **A reader who forced their own font is not reached by any of this.** They see
+  the decoy, rendered fluently, with no signal — and the font-load guard cannot
+  detect the case. Only the visible wrapper reaches them:
+  [forced fonts](./integration.md#forced-fonts-the-one-with-no-signal).
 - **A crawler that wants the text still gets it, more cheaply, via OCR.** This
   feature stops the accessible path being a *shortcut*. It does not stop
   scraping, and it is not a wall.
