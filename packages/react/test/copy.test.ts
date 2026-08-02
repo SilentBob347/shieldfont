@@ -158,11 +158,7 @@ const JS = () => copyGuardScript({ attr: A, flag: "__f__" });
 
 describe("copyPaste requires a seal, and says so", () => {
   it("throws when the accessible path is off, in every spelling of off", () => {
-    const offs = [
-      { screenReader: false },
-      { a11y: { mode: "none" } },
-      { a11y: { mode: "audio", src: "/a.mp3" } },
-    ];
+    const offs = [{ screenReader: false }, { a11y: { mode: "none" } }];
     for (const off of offs) {
       expect(() => Shield({ children: BODY, copyPaste: true, ...off } as never)).toThrow(
         /copyPaste with the accessible path turned off/,

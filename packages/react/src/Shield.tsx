@@ -104,15 +104,30 @@ export interface RotateConfig {
  *
  * `"text"`  — the ORIGINAL words, encrypted into the page behind a time-lock
  *             puzzle. A button decodes them in the reader's browser.
- * `"audio"` — a build-time-synthesised recording of the ORIGINAL words.
  * `"none"`  — an explicit, auditable opt-out; renders nothing and warns not at all.
+ *
+ * `"audio"` WAS REMOVED IN 0.3.2 and is not coming back. It took a `src` and
+ * rendered a native `<audio controls>` pointing at a recording the author had to
+ * synthesise and host themselves, which is the whole problem: it was the one
+ * mode that asked for work outside the build, so almost nobody did it, and a
+ * mode nobody configures is not an accessible alternative. Worse, the ones who
+ * did configure it were not covered either — audio-only content with no text
+ * alternative fails WCAG 2.2 SC 1.2.1 (Level A), and the text mode never
+ * rescued it because the two were separate alternatives an author chose
+ * BETWEEN, not a pair. So it charged the author real work for an alternative
+ * that did not stand up as one. `{ mode: "text" }` asks nothing of them and
+ * ships words rather than sound, so 1.2.1 does not arise for it — which is not
+ * a conformance claim for anything else in this package; read the warning in
+ * the README. Passing `{ mode: "audio" }` is a type error now, and an author who
+ * wants a recording can put an `<audio>` element beside the block themselves.
+ * Nothing here ever stopped them, and doing it by hand at least makes the
+ * transcript their decision rather than this library's omission.
  *
  * NO PLAIN-TEXT URL IS RENDERED ANYWHERE, and `"text"` is not a return to one.
  * The 0.2.0 shape was `{ mode: "text", href }` — a link to the original words,
  * sitting in the HTML beside the encoded ones, which any scraper reads for the
- * cost of following it. That, and the audio mode's `transcript` link, were
- * removed for a single reason: a URL cannot be offered to a screen reader
- * without being offered to everyone else.
+ * cost of following it. That was removed for a single reason: a URL cannot be
+ * offered to a screen reader without being offered to everyone else.
  *
  * What replaces it inverts that. The words ship in the page but ENCRYPTED, and
  * the key is not in the page either — it is the answer to a puzzle that takes a
@@ -178,26 +193,13 @@ export type ShieldA11y =
        * (clip-path, never `display:none` — that would remove it from the tree,
        * which is the exact bug this prop exists to fix).
        *
-       * **Defaults to `true` for this mode.** A sighted reader can already read
-       * the block through the font, so an on-screen widget explaining an
-       * unlocking mechanism is, to them, attached to text that looks fine.
+       * **Defaults to `true`.** A sighted reader can already read the block
+       * through the font, so an on-screen widget explaining an unlocking
+       * mechanism is, to them, attached to text that looks fine.
        *
        * Pass `false` to put it back on screen. Do that if you need WCAG 2.2 SC
        * 2.4.7: while hidden, a sighted keyboard user Tabs into a control they
        * cannot see and their focus indicator disappears.
-       */
-      visualHidden?: boolean;
-    }
-  | {
-      mode: "audio";
-      /** URL of the audio file. Synthesise it AT BUILD TIME — see the docs. */
-      src: string;
-      /** Overrides the default explanatory sentence for this block. */
-      note?: string;
-      /**
-       * Hide the control visually while keeping it in the accessibility tree.
-       * Defaults to `false` HERE — unlike the text variant, which defaults to
-       * `true`. A player nobody can see is a player nobody can press.
        */
       visualHidden?: boolean;
     }
@@ -275,10 +277,9 @@ export interface ShieldProps {
    * `aria-hidden` region and BEFORE it in DOM order, so a screen-reader user
    * reaches it before the silence.
    *
-   * `{ mode: "text" }` is the recommended one and needs nothing from you: the
-   * original words are encrypted into the page at build time and a button
-   * decodes them in the browser. `{ mode: "audio", src }` wants a file you
-   * synthesised yourself. `{ mode: "none" }` is an explicit, auditable opt-out.
+   * `{ mode: "text" }` is the default and needs nothing from you: the original
+   * words are encrypted into the page at build time and a button decodes them
+   * in the browser. `{ mode: "none" }` is an explicit, auditable opt-out.
    * Omitting `a11y` entirely logs one development-time warning per process.
    *
    * No mode renders a link to a plain-text copy. See {@link ShieldA11y}.
@@ -286,7 +287,6 @@ export interface ShieldProps {
    * @example
    *   <Shield a11y={{ mode: "text" }}>{body}</Shield>
    *   <Shield a11y={{ mode: "text", seconds: 10 }}>{shortPullQuote}</Shield>
-   *   <Shield a11y={{ mode: "audio", src: "/audio/post-1.mp3" }}>{body}</Shield>
    *   <Shield a11y={{ mode: "none" }}>{body}</Shield>
    */
   a11y?: ShieldA11y;
@@ -294,7 +294,7 @@ export interface ShieldProps {
   /**
    * Draw the reader-facing notice: an outline enclosing this block, with a
    * strip carrying one short sentence and two buttons ("Uncover",
-   * "Copy"). Requires `a11y={{ mode: "text" }}` — it is the visible surface of
+   * "Copy to clipboard"). Requires `a11y={{ mode: "text" }}` — it is the visible surface of
    * that mode, and does nothing without a sealed payload to open.
    *
    * `true` uses every default; pass a {@link ShieldNotice} to change the copy,
@@ -1709,14 +1709,13 @@ function warnIfClientRender(): void {
 // block, outside the hidden subtree and before it in DOM order, so linear
 // navigation reaches the alternative before the silence. That is `a11y`.
 //
-// NO URL IS RENDERED ANYWHERE. Two things shipped in 0.2.0 and both were
-// removed: a `mode: "text"` that linked a URL serving the original words, and
-// an optional `transcript` link on the audio mode. Same reason for both, worth
-// stating once: a URL cannot be offered to a screen reader without being
-// offered to everyone else, and the same crawl that reads the decoy reads the
-// link beside it. One line of scraper code follows it — so a block carrying
-// either was strictly LESS protected than an unwrapped one, while looking
-// protected. No author opts into that knowingly.
+// NO URL IS RENDERED ANYWHERE. 0.2.0 shipped a `mode: "text"` that linked a URL
+// serving the original words, and it was removed. The reason is worth stating
+// once: a URL cannot be offered to a screen reader without being offered to
+// everyone else, and the same crawl that reads the decoy reads the link beside
+// it. One line of scraper code follows it — so a block carrying one was strictly
+// LESS protected than an unwrapped one, while looking protected. No author opts
+// into that knowingly.
 //
 // WHAT REPLACED IT, and it is built: `mode: "text"` now ships the words
 // ENCRYPTED in the page, behind a time-lock puzzle the reader's own browser
@@ -1728,10 +1727,6 @@ function warnIfClientRender(): void {
 //
 // WHAT IT STILL COSTS, said straight:
 //
-//   - `mode: "audio"` on its own fails WCAG 2.2 SC 1.2.1 (Level A). The text
-//     mode does not rescue it; they are separate alternatives an author picks
-//     between, not a pair. Ship audio alone and there is still no answer to
-//     1.2.1.
 //   - The text mode needs JavaScript, BigInt, crypto.subtle and a secure
 //     origin. It is the one part of this package that does not survive JS being
 //     off, and the font does the rest of the work without any of it.
@@ -1767,27 +1762,21 @@ const VISUALLY_HIDDEN: CSSProperties = {
 };
 
 /**
- * Default explanatory prose. Real sentences, not a label: "Listen" alone tells
- * a screen-reader user nothing about WHY the article is missing.
+ * Default explanatory prose, spoken once per page before the control. A real
+ * sentence, not a label: a bare verb tells a screen-reader user nothing about
+ * WHY the paragraph they wanted is missing.
  *
- * One string rather than the per-mode table this used to be: `"audio"` is the
- * only mode that renders anything, so a lookup keyed on the mode was a table
- * with one row.
+ * One string rather than the per-mode lookup this used to be. `"none"` renders
+ * nothing at all, so `"text"` is the only mode with a note to pick, and a table
+ * with one row is just the row.
+ *
+ * Short on purpose. The first version ran to thirty-three words and opened with
+ * "hidden from assistive technology", which is jargon addressed to the wrong
+ * audience — the listener does not care what the mechanism is called, they care
+ * that a paragraph is missing and that there is a way to get it. Tested by ear:
+ * the long version was heard as noise to skip past.
  */
-const A11Y_NOTE = {
-  // NOT "hidden from assistive technology because its text is encoded". That
-  // sentence was two kinds of wrong at once: it is jargon addressed to someone
-  // who only wants the words, and the audio control is VISIBLE by default, so
-  // it put "encoded" on screen — a word notice.ts's own header rule keeps out
-  // of anywhere a reader can see, because it is a free signature for a crawler.
-  audio: "This text can’t be read aloud. Listen to it here instead.",
-  // Short on purpose. The first version ran to thirty-three words and opened
-  // with "hidden from assistive technology", which is jargon addressed to the
-  // wrong audience — the listener does not care what the mechanism is called,
-  // they care that a paragraph is missing and that there is a way to get it.
-  // Tested by ear: the long version was heard as noise to skip past.
-  text: DEFAULT_TEXT,
-} as const;
+const A11Y_NOTE = DEFAULT_TEXT;
 
 /**
  * The note every text-mode block after the FIRST one on a page gets.
@@ -1853,17 +1842,11 @@ function warnIfNoA11y(): void {
  * Build the accessible alternative. Returns `null` for `{ mode: "none" }` and
  * for an omitted prop (after warning), so the caller can render it or not.
  *
- * An explanatory sentence and an `<audio>` element, and that is the whole
- * output. There is no branch on the mode (`"none"` returns early and the union
- * has nothing else in it) and there is no `<a>` anywhere: the removed `"text"`
- * mode and the removed `transcript` link were both a URL to the original words
- * sitting in the HTML, which any scraper that follows it reads for free. See
- * the section note above.
- *
- * Native `<audio controls>`, not a custom button: zero JavaScript, keyboard
- * operable and labelled for free, survives a static export, and hands the user
- * the download and speed controls they already know. `preload="none"` so it
- * costs nothing until someone presses play.
+ * An explanatory sentence and the time-lock control, and that is the whole
+ * output. There is no branch on the mode — `"none"` returns early and the union
+ * has nothing else in it — and there is no `<a>` anywhere: the removed 0.2.0
+ * `{ mode: "text", href }` was a URL to the original words sitting in the HTML,
+ * which any scraper that follows it reads for free. See the section note above.
  */
 function renderA11y(
   a11y: ShieldA11y | undefined,
@@ -1885,13 +1868,11 @@ function renderA11y(
   const attr = camo.attrName;
   const Wrap = (inline ? "span" : "div") as ElementType;
   const Note = (inline ? "span" : "p") as ElementType;
-  // DEFAULT for the text mode: the whole control is screen-reader-only.
+  // DEFAULT: the whole control is screen-reader-only.
   //
   // A sighted reader can already read the block perfectly — the font does that
   // work — so a note and a button explaining an unlocking mechanism are, to
-  // them, an unexplained widget attached to text that looks fine. The audio
-  // mode keeps its player on screen, because a player nobody can see is a
-  // player nobody can press.
+  // them, an unexplained widget attached to text that looks fine.
   //
   // KNOWN COST, and it is a real one: a sighted person navigating by keyboard
   // without a screen reader will Tab into a control they cannot see, and their
@@ -1899,12 +1880,12 @@ function renderA11y(
   // skip-link pattern — clipped until focused, visible while focused — which
   // this deliberately does NOT do, because it was asked to be invisible.
   // `visualHidden: false` restores an on-screen control.
-  const hideWrap = a11y.visualHidden ?? a11y.mode === "text";
+  const hideWrap = a11y.visualHidden ?? true;
   const wrapStyle = hideWrap ? VISUALLY_HIDDEN : undefined;
-  // Only the text mode repeats per block often enough to be worth shortening,
-  // and only after this pass has spent its one full explanation.
-  const firstOfPage = a11y.mode !== "text" || claim("notes", "long");
-  const note = a11y.note ?? (firstOfPage ? A11Y_NOTE[a11y.mode] : A11Y_NOTE_REPEAT);
+  // The long note is spent once per render pass; every block after the first
+  // gets the short form. See {@link A11Y_NOTE_REPEAT} for why.
+  const firstOfPage = claim("notes", "long");
+  const note = a11y.note ?? (firstOfPage ? A11Y_NOTE : A11Y_NOTE_REPEAT);
 
   // Bare data attributes as hooks for the solver script. Names derive from the
   // camouflage attr, so a project that called setCamouflage({ hash }) has no
@@ -1954,19 +1935,15 @@ function renderA11y(
           {note}
         </Note>
       </span>
-      {a11y.mode === "audio" ? (
-        <audio controls preload="none" src={a11y.src} aria-label="Audio version" />
-      ) : (
-        renderPuzzle(
-          a11y.seconds,
-          blockId,
-          plain,
-          inline,
-          tag,
-          a11y.reveal ?? "hidden",
-          a11y.label,
-          ordinal,
-        )
+      {renderPuzzle(
+        a11y.seconds,
+        blockId,
+        plain,
+        inline,
+        tag,
+        a11y.reveal ?? "hidden",
+        a11y.label,
+        ordinal,
       )}
     </Wrap>
   );
@@ -2850,17 +2827,14 @@ export function Shield(props: ShieldProps) {
   // does not exist on this page. "Punishing the reader" was rejected once
   // already, and shipping it silently is how it would come back.
   //
-  // Keyed on `usesPuzzle` rather than on the two spellings `explain` checks,
-  // because there is a third way to have no seal: `a11y={{ mode: "audio" }}`
-  // renders a player and seals nothing. That case fell through the explain
-  // check too; this one names it.
+  // Keyed on `usesPuzzle` — the single resolved config — rather than on the two
+  // spellings `explain` checks, so it fires for every way of saying "no seal".
   if (copyPaste !== undefined && copyPaste !== false && !usesPuzzle) {
     throw new Error(
       `${camo.logPrefix} <Shield> was given copyPaste with the accessible path turned off. ` +
         `Copy mediation replaces a paste with a sentence telling the reader how to get the ` +
         `real words, and without a seal there is nothing for that sentence to point at. ` +
-        `Either remove screenReader={false} / a11y={{ mode: "none" }} / a11y={{ mode: "audio" }}, ` +
-        `or remove copyPaste.`,
+        `Either remove screenReader={false} / a11y={{ mode: "none" }}, or remove copyPaste.`,
     );
   }
 
@@ -2888,8 +2862,8 @@ export function Shield(props: ShieldProps) {
 
   // FAIL LOUD on the combinations that cannot mean anything. Both are keyed on
   // `usesPuzzle` — the single resolved config — so they fire for every spelling
-  // of "off" (screenReader:false, a11y:{mode:"none"}, a11y:{mode:"audio"}) and
-  // for every spelling of the thing being asked for (explain OR notice).
+  // of "off" (screenReader:false, a11y:{mode:"none"}) and for every spelling of
+  // the thing being asked for (explain OR notice).
   if (explainProp !== undefined && explainProp !== false && !usesPuzzle) {
     throw new Error(
       `${camo.logPrefix} <Shield> was given ${explain !== undefined ? "explain" : "notice"} ` +
@@ -3380,9 +3354,9 @@ export function Shield(props: ShieldProps) {
         aria-hidden is deliberate: the HTML here holds a decoy, and voicing a
         decoy is worse than voicing nothing — it is fluent, wrong, and gives the
         listener no signal that anything is off. The alternative is the `a11y`
-        prop above: either audio synthesised AT BUILD TIME, or the time-lock
-        text mode, whose plaintext is sealed at build time and opened by the
-        reader's own browser. Browser speechSynthesis is not an option: on the
+        prop above: the time-lock text mode, whose plaintext is sealed at build
+        time and opened by the reader's own browser. Browser speechSynthesis is
+        not an option: on the
         rendered page it would voice the decoy, and on the original it would
         require shipping your plaintext to the browser — the exact leak this
         file warns about a hundred lines up.

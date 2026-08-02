@@ -129,6 +129,12 @@ try {
   //     NVDA's Elements List a column of rows differing only at the start.
   check(!all.includes("protected from ai bots"), "control names carry no filler");
 
+  // 2c. The copy control says what it copies TO. It is icon-only, so this name
+  //     is spoken and never drawn — "Copy" alone is fine beside a clipboard
+  //     glyph and ambiguous heard between a sentence about scrambled text and a
+  //     button called Uncover.
+  check(all.includes("copy to clipboard"), "the copy control names its destination");
+
   // 3. scbaker's exact question. The sentence has to be reachable and spoken —
   //    four earlier attempts put it somewhere screen readers silently skip.
   check(

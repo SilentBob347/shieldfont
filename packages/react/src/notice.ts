@@ -158,7 +158,15 @@ export interface ShieldNotice {
   labels?: {
     /** Default `"Uncover"`. */
     show?: string;
-    /** Default `"Copy"`. */
+    /**
+     * The copy control's name. Default `"Copy to clipboard"`.
+     *
+     * The button is icon-only, so this is spoken and never drawn — which is why
+     * it can afford to be the longer phrase. "Copy" alone is the convention on
+     * screen, where a clipboard icon sits beside it and the target is obvious;
+     * heard on its own, between a sentence about scrambled text and a button
+     * called Uncover, "Copy" leaves open what is being copied and to where.
+     */
     copy?: string;
     /**
      * The longer spoken form of {@link show}, e.g. `"Uncover the plain text"`
@@ -363,7 +371,7 @@ export function resolveNotice(n: ShieldNotice | true): ResolvedNotice {
     position: cfg.position ?? "top",
     labels: {
       show: l.show ?? "Uncover",
-      copy: l.copy ?? "Copy",
+      copy: l.copy ?? "Copy to clipboard",
       restore: l.restore ?? "Restore",
       info: l.info ?? "What does this mean?",
       gist: l.gist,

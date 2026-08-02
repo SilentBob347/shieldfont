@@ -54,6 +54,9 @@ describe("opting out of the accessible alternative", () => {
     expect(message).toMatch(/mode: "text"/);
     expect(message).not.toMatch(/href/i);
     expect(message).not.toMatch(/plain-text (copy|version|URL)/i);
+    // Nor the audio mode, retired in 0.3.2. A message that still enumerates it
+    // sends an author to configure a mode that no longer type-checks.
+    expect(message).not.toMatch(/mode: "audio"/);
   });
 
   it("does not warn on the DEFAULT — the block is accessible without asking", async () => {
@@ -79,16 +82,16 @@ describe("opting out of the accessible alternative", () => {
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
-  it("does not warn when the alternative is present, in any mode", async () => {
+  it("does not warn when the alternative is present, in any configuration", async () => {
     const Shield = await freshShield();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     // `mode: "none"` is deliberately NOT in this list any more — it is an
     // opt-out, and the test above asserts it warns.
-    Shield({ children: BODY, a11y: { mode: "audio", src: "/a.mp3" } });
-    Shield({ children: BODY, a11y: { mode: "audio", src: "/a.mp3", note: "Listen." } });
     Shield({ children: BODY, a11y: { mode: "text" } });
     Shield({ children: BODY, a11y: { mode: "text", seconds: 5 } });
+    Shield({ children: BODY, explain: false, a11y: { mode: "text", note: "Uncover it below." } });
+    Shield({ children: BODY, explain: false, a11y: { mode: "text", visualHidden: false } });
 
     expect(warn).not.toHaveBeenCalled();
   });

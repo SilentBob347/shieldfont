@@ -9,12 +9,14 @@
  *      the prop exists to fix.
  *
  * A third property is now asserted just as hard, in "renders no link, ever":
- * the alternative contains NO `<a>` at all. `mode: "text"` and the audio
- * mode's optional `transcript` both used to put a URL to the original words in
- * the HTML, which any scraper that follows it reads for free. Both are gone,
- * and the test is the guard against either coming back by accident. The cases
- * they carried (markup validity, `visualHidden`, `note`) run against the audio
- * mode.
+ * the alternative contains NO `<a>` at all. The 0.2.0 `{ mode: "text", href }`
+ * put a URL to the original words in the HTML, which any scraper that follows
+ * it reads for free. It is gone, and the test is the guard against it coming
+ * back by accident.
+ *
+ * Every fixture below runs the CLIPPED tier — `explain: false` plus
+ * `{ mode: "text" }` — because that is the tier `renderA11y` builds. The drawn
+ * wrapper is the default and has its own suite further down.
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { Shield, withShieldRenderPass, type ShieldA11y } from "../src/Shield.js";
@@ -75,78 +77,52 @@ describe("aria-hidden stays on the encoded block", () => {
   it("keeps aria-hidden=\"true\", with and without an alternative", () => {
     for (const a11y of [
       { mode: "none" } as const,
-      { mode: "audio", src: "/a.mp3" } as const,
-      { mode: "audio", src: "/a.mp3", note: "Listen." } as const,
+      { mode: "text" } as const,
+      { mode: "text", note: "Uncover the words below." } as const,
     ]) {
-      const block = shieldedBlock(Shield({ children: BODY, a11y }));
+      const block = shieldedBlock(Shield({ children: BODY, explain: false, a11y }));
       expect(props(block)["aria-hidden"]).toBe("true");
     }
   });
 
   it("never puts the alternative inside the hidden subtree", () => {
-    const tree = Shield({ children: BODY, a11y: { mode: "audio", src: "/a.mp3" } });
+    const tree = Shield({ children: BODY, explain: false, a11y: { mode: "text" } });
     const block = shieldedBlock(tree);
     const inside = descendants(block);
-    expect(inside.some((el) => el.type === "audio")).toBe(false);
+    expect(inside.some((el) => el.type === "button")).toBe(false);
     expect(inside.some((el) => el.type === "a")).toBe(false);
     // ...and it IS somewhere in the tree.
-    expect(findTag(tree, "audio")).toBeDefined();
+    expect(findTag(tree, "button")).toBeDefined();
   });
 
   it("puts the alternative BEFORE the hidden block in DOM order", () => {
-    const tree = Shield({ children: BODY, a11y: { mode: "audio", src: "/a.mp3" } });
-    const order = walkAll(tree);
-    const audioAt = order.findIndex((el) => el.type === "audio");
+    const tree = Shield({ children: BODY, explain: false, a11y: { mode: "text" } });
+    // walkDeep, not walkAll: the button lives inside a subcomponent, and
+    // walkAll stops at function components and silently finds nothing.
+    const order = walkDeep(tree);
+    const controlAt = order.findIndex((el) => el.type === "button");
     const blockAt = order.indexOf(shieldedBlock(tree));
-    expect(audioAt).toBeGreaterThanOrEqual(0);
+    expect(controlAt).toBeGreaterThanOrEqual(0);
     expect(blockAt).toBeGreaterThanOrEqual(0);
-    expect(audioAt).toBeLessThan(blockAt);
-  });
-});
-
-describe('mode: "audio"', () => {
-  it("renders a native <audio controls> with preload=none and the src", () => {
-    const tree = Shield({ children: BODY, a11y: { mode: "audio", src: "/audio/post-1.mp3" } });
-    const audio = findTag(tree, "audio");
-    expect(audio).toBeDefined();
-    expect(props(audio!).controls).toBe(true);
-    expect(props(audio!).preload).toBe("none");
-    expect(props(audio!).src).toBe("/audio/post-1.mp3");
-  });
-
-  it("renders an explanatory sentence, not a bare label", () => {
-    const tree = Shield({ children: BODY, a11y: { mode: "audio", src: "/a.mp3" } });
-    const note = findTag(tree, "p");
-    expect(note).toBeDefined();
-    const text = String(props(note!).children);
-    expect(text.length).toBeGreaterThan(40);
-    expect(text).toMatch(/read aloud/i);
-    expect(text).toMatch(/listen/i);
-  });
-
-  it("lets `note` replace the sentence", () => {
-    const tree = Shield({
-      children: BODY,
-      a11y: { mode: "audio", src: "/a.mp3", note: "Listen to this essay." },
-    });
-    expect(props(findTag(tree, "p")!).children).toBe("Listen to this essay.");
+    expect(controlAt).toBeLessThan(blockAt);
   });
 });
 
 describe("renders no link, ever", () => {
-  // The regression guard for the whole reason `mode: "text"` and the audio
-  // mode's `transcript` were deleted: a URL to the original words sitting in
-  // the HTML is a one-line bypass for any scraper that follows it, and it
-  // cannot be shown to a screen reader without being shown to everyone else.
-  // If an <a> reappears in this output, something has undone that.
+  // The regression guard for the whole reason the 0.2.0 `{ mode: "text", href }`
+  // was deleted: a URL to the original words sitting in the HTML is a one-line
+  // bypass for any scraper that follows it, and it cannot be shown to a screen
+  // reader without being shown to everyone else. If an <a> reappears in this
+  // output, something has undone that.
   it("emits no <a> under any accepted configuration", () => {
     for (const a11y of [
       { mode: "none" } as const,
-      { mode: "audio", src: "/a.mp3" } as const,
-      { mode: "audio", src: "/a.mp3", note: "Listen." } as const,
-      { mode: "audio", src: "/a.mp3", visualHidden: true } as const,
+      { mode: "text" } as const,
+      { mode: "text", note: "Uncover the words below." } as const,
+      { mode: "text", visualHidden: true } as const,
+      { mode: "text", reveal: "visible" } as const,
     ]) {
-      const tree = Shield({ children: BODY, a11y });
+      const tree = Shield({ children: BODY, explain: false, a11y });
       expect(findAllTags(tree, "a")).toHaveLength(0);
     }
     // ...including with no `a11y` at all (which warns; silence it here).
@@ -154,7 +130,7 @@ describe("renders no link, ever", () => {
     expect(findAllTags(Shield({ children: BODY }), "a")).toHaveLength(0);
   });
 
-  it("ignores a leftover `transcript`/`label` instead of rendering it", () => {
+  it("ignores a leftover `href`/`transcript` instead of rendering it", () => {
     // TypeScript rejects both fields now, but a plain-JS caller and a project
     // mid-upgrade can still pass the 0.2.0 shape. The old URL must not reach
     // the DOM just because the object it arrived on still has the key — that
@@ -162,16 +138,29 @@ describe("renders no link, ever", () => {
     // migrated yet. (Typechecking does not run over this directory, so this is
     // asserted at runtime, where it is actually verified.)
     const stale = {
-      mode: "audio",
-      src: "/a.mp3",
+      mode: "text",
+      href: "/plain/post-1.txt",
       transcript: "/t.txt",
-      label: "Read the transcript",
     } as unknown as ShieldA11y;
-    const tree = Shield({ children: BODY, a11y: stale });
+    const tree = Shield({ children: BODY, explain: false, a11y: stale });
     expect(findAllTags(tree, "a")).toHaveLength(0);
     expect(JSON.stringify(tree)).not.toContain("/t.txt");
-    // The audio itself still renders — a stale field is ignored, not fatal.
-    expect(findTag(tree, "audio")).toBeDefined();
+    expect(JSON.stringify(tree)).not.toContain("/plain/post-1.txt");
+    // The control itself still renders — a stale field is ignored, not fatal.
+    expect(findTag(tree, "button")).toBeDefined();
+  });
+
+  it("rejects the retired audio mode instead of quietly rendering a player", () => {
+    // `{ mode: "audio", src }` was removed in 0.3.2 (GitHub issue #2): it asked
+    // the author to synthesise and host a recording, which almost nobody did,
+    // and audio with no text alternative fails WCAG 2.2 SC 1.2.1 even when they
+    // did. TypeScript rejects the object now; this asserts the runtime does not
+    // resurrect it for a plain-JS caller who has not upgraded — no <audio>
+    // element, and the URL they passed never reaches the markup.
+    const retired = { mode: "audio", src: "/audio/post-1.mp3" } as unknown as ShieldA11y;
+    const tree = Shield({ children: BODY, explain: false, a11y: retired });
+    expect(findTag(tree, "audio")).toBeUndefined();
+    expect(JSON.stringify(tree)).not.toContain("/audio/post-1.mp3");
   });
 });
 
@@ -180,7 +169,7 @@ describe('mode: "none"', () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const tree = Shield({ children: BODY, a11y: { mode: "none" } });
     expect(warn).not.toHaveBeenCalled();
-    expect(findTag(tree, "audio")).toBeUndefined();
+    expect(findTag(tree, "button")).toBeUndefined();
     expect(findTag(tree, "a")).toBeUndefined();
     expect(findTag(tree, "p")).toBeUndefined();
     // style + script + the encoded block, nothing else.
@@ -191,10 +180,10 @@ describe('mode: "none"', () => {
 describe("visualHidden", () => {
   it("clips instead of using display:none or visibility:hidden", () => {
     for (const a11y of [
-      { mode: "audio", src: "/a.mp3", visualHidden: true } as const,
-      { mode: "audio", src: "/a.mp3", note: "Listen.", visualHidden: true } as const,
+      { mode: "text", visualHidden: true } as const,
+      { mode: "text", note: "Uncover the words below.", visualHidden: true } as const,
     ]) {
-      const tree = Shield({ children: BODY, a11y });
+      const tree = Shield({ children: BODY, explain: false, a11y });
       const wrap = walkAll(tree).find((el) => String(props(el).className ?? "").endsWith("-alt"));
       expect(wrap).toBeDefined();
       const style = props(wrap!).style as CSSProperties;
@@ -208,16 +197,28 @@ describe("visualHidden", () => {
     }
   });
 
-  it("is visible by default", () => {
-    const tree = Shield({ children: BODY, a11y: { mode: "audio", src: "/a.mp3" } });
-    const wrap = walkAll(tree).find((el) => String(props(el).className ?? "").endsWith("-alt"));
-    expect(props(wrap!).style).toBeUndefined();
+  it("clips by default, and `false` puts the control back on screen", () => {
+    // The default is the interesting half: a sighted reader can already read
+    // the block through the font, so the control is screen-reader-only unless
+    // asked for. `false` must leave NO style behind at all — an empty style
+    // object here would be a clip that stopped clipping without anyone noticing.
+    const hidden = Shield({ children: BODY, explain: false, a11y: { mode: "text" } });
+    const alt = (t: unknown) =>
+      walkAll(t).find((el) => String(props(el).className ?? "").endsWith("-alt"));
+    expect((props(alt(hidden)!).style as CSSProperties).clipPath).toBe("inset(50%)");
+
+    const shown = Shield({
+      children: BODY,
+      explain: false,
+      a11y: { mode: "text", visualHidden: false },
+    });
+    expect(props(alt(shown)!).style).toBeUndefined();
   });
 });
 
 describe("markup validity", () => {
   it("wraps in a div/p for block Shields", () => {
-    const tree = Shield({ children: BODY, a11y: { mode: "audio", src: "/a.mp3" } });
+    const tree = Shield({ children: BODY, explain: false, a11y: { mode: "text" } });
     const wrap = walkAll(tree).find((el) => String(props(el).className ?? "").endsWith("-alt"));
     expect(wrap!.type).toBe("div");
     expect(findTag(tree, "p")).toBeDefined();
@@ -226,7 +227,7 @@ describe("markup validity", () => {
   it("uses phrasing content for an inline Shield, so it cannot split a <p>", () => {
     // A <div>/<p> sibling emitted next to an inline <Shield as="span"> inside a
     // paragraph makes the browser close the enclosing <p> early.
-    const tree = Shield({ as: "span", children: BODY, a11y: { mode: "audio", src: "/a.mp3" } });
+    const tree = Shield({ as: "span", children: BODY, explain: false, a11y: { mode: "text" } });
     const wrap = walkAll(tree).find((el) => String(props(el).className ?? "").endsWith("-alt"));
     expect(wrap!.type).toBe("span");
     expect(findTag(tree, "div")).toBeUndefined();
@@ -238,8 +239,8 @@ describe("markup validity", () => {
     // `role="group"` + `aria-label` used to be here. Removed after a real
     // VoiceOver session: it announced the group, then that you were "inside of
     // a group", then how to exit the group — before a control that already
-    // named itself. A note and a player read fine as plain siblings.
-    const tree = Shield({ children: BODY, a11y: { mode: "audio", src: "/a.mp3" } });
+    // named itself. A note and a button read fine as plain siblings.
+    const tree = Shield({ children: BODY, explain: false, a11y: { mode: "text" } });
     const wrap = walkAll(tree).find((el) => String(props(el).className ?? "").endsWith("-alt"));
     expect(wrap).toBeDefined();
     // `presentation` takes the wrapper itself out of the accessibility tree.
@@ -581,7 +582,7 @@ describe("the drawn notice — the emitted script", () => {
 
 describe("still encodes", () => {
   it("leaves the shielded text encoded regardless of the a11y mode", () => {
-    const tree = Shield({ children: BODY, a11y: { mode: "audio", src: "/a.mp3" } });
+    const tree = Shield({ children: BODY, explain: false, a11y: { mode: "text" } });
     const encoded = props(shieldedBlock(tree)).children as string;
     expect(typeof encoded).toBe("string");
     expect(encoded).not.toBe(BODY);

@@ -349,12 +349,15 @@ describe("the control is usable by a screen reader", () => {
     const style = props(byAttr(Shield({ children: BODY, ...INVISIBLE }), "data-typeface-group")!)
       .style as Record<string, unknown>;
     expect(style.clipPath).toBe("inset(50%)");
-    // The audio mode keeps its player on screen: one nobody can see is one
-    // nobody can press.
-    const audio = props(
-      byAttr(Shield({ children: BODY, explain: false, a11y: { mode: "audio", src: "/a.mp3" } }), "data-typeface-group")!,
+    // ...and `visualHidden: false` is the way back on screen, for anyone who
+    // needs the focus indicator a clipped control takes away.
+    const shown = props(
+      byAttr(
+        Shield({ children: BODY, explain: false, a11y: { ...FAST, visualHidden: false } }),
+        "data-typeface-group",
+      )!,
     ).style;
-    expect(audio).toBeUndefined();
+    expect(shown).toBeUndefined();
   });
 
   it("honours visualHidden by clipping, never by display:none", () => {
@@ -401,9 +404,13 @@ describe("page-level wiring", () => {
     expect(ids[0]).not.toBe(ids[1]);
   });
 
-  it("stamps no id and no solver when the mode is not text", () => {
-    for (const a11y of [{ mode: "none" } as const, { mode: "audio", src: "/a.mp3" } as const]) {
-      const t = Shield({ children: BODY, explain: false, a11y });
+  it("stamps no id and no solver when there is no seal to open", () => {
+    // Both spellings of "off". `{ mode: "none" }` is the explicit opt-out;
+    // `screenReader: false` is the switch. Neither seals anything, so neither
+    // may leave a block id or a solver script behind for a control that is not
+    // there — the id in particular is a signature bought for nothing.
+    for (const off of [{ a11y: { mode: "none" } as const }, { screenReader: false }]) {
+      const t = Shield({ children: BODY, explain: false, ...off });
       expect(props(shieldedBlock(t)).id).toBeUndefined();
       const scripts = findAllTags(t, "script").filter((s) =>
         String((props(s).dangerouslySetInnerHTML as { __html: string })?.__html).includes("-solve"),

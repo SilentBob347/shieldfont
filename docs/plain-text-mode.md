@@ -450,7 +450,7 @@ Details that matter, and why:
     reveal: "hidden",     // "hidden" (default) | "visible"
     label: undefined,     // overrides the button's accessible name
     note: undefined,      // overrides the explanatory sentence
-    visualHidden: true,   // default true for text, false for audio
+    visualHidden: true,   // default true
   }}
 >
   {body}

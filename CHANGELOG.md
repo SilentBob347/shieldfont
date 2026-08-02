@@ -6,6 +6,51 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+### Removed
+
+- **`a11y={{ mode: "audio", src }}` is gone.** It shipped in 0.3.0 as one of the
+  two ways to give a shielded block a real alternative: you synthesised a
+  recording of the original words at build time, hosted it, and `<Shield>`
+  rendered a native `<audio controls preload="none">` beside the block. It is
+  removed on the maintainer's own reading of it in issue #2, and the reasons are
+  worth keeping because they are the reasons not to bring it back.
+
+  It was **the only mode that asked for work outside the build.** Every other
+  part of this package runs from the text you already have; this one wanted a
+  file you had to produce, name, host and keep in sync with the copy every time
+  you edited a paragraph. Almost nobody was going to do that, and an accessible
+  alternative that is not configured is not an alternative — it is a
+  documentation entry sitting next to a silent block.
+
+  The authors who *did* do it were not covered either. **Audio-only content with
+  no text alternative fails WCAG 2.2 SC 1.2.1 (Level A)**, and `mode: "text"`
+  never rescued it: the two were separate alternatives you chose *between*, not
+  a pair. The `transcript` link that would have answered 1.2.1 had already been
+  removed in 0.3.0, for the same reason the 0.2.0 `href` was — a URL cannot be
+  offered to a screen reader without being offered to every crawler that reads
+  the decoy beside it. So the mode was stuck: the fix for its one conformance
+  hole was the exact thing this package cannot ship.
+
+  **What to do instead.** `a11y={{ mode: "text" }}` is the default and needs
+  nothing from you. If you want a recording as well, put an `<audio>` element
+  next to the block yourself — nothing here ever stopped you, and doing it by
+  hand keeps the transcript your decision rather than this library's omission.
+
+  Passing `{ mode: "audio" }` is now a **type error**. A plain-JS caller who has
+  not migrated gets no `<audio>` element and no `src` in the markup rather than
+  a silently half-built player; `a11y.test.ts` asserts that. The `src`,
+  per-mode `visualHidden` defaults (`true` for text, `false` for audio) and the
+  per-mode note table went with it, so `visualHidden` now simply defaults to
+  `true` and the note is one string. **No text-mode behaviour changed.**
+
+- **The thrown errors and the dev-time warning no longer enumerate it.** The
+  `copyPaste`-without-a-seal message used to end "Either remove
+  `screenReader={false}` / `a11y={{ mode: "none" }}` / `a11y={{ mode: "audio" }}`",
+  which after this release would send an author to configure a mode that does
+  not type-check. The remaining two spellings of "off" are unchanged.
+
 ## [0.3.1] — the solver stops fighting React hydration
 
 The fix is in `@shieldfont/react`. `@shieldfont/core` and `@shieldfont/font`
