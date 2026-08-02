@@ -2876,6 +2876,56 @@ export function Shield(props: ShieldProps) {
   // something and costs a crawler nothing — it is the one behaviour in this
   // library that deters no bot at all. It should not be switched off as a side
   // effect of a decision about whether to draw a box.
+  // ---- THE FOUR SETTINGS THE WRAPPER CANNOT HONOUR ------------------------
+  //
+  // `reveal`, `visualHidden`, `label` and `note` are read by renderA11y and
+  // renderPuzzle, and those run only on the tiers with NO drawn wrapper. Since
+  // 0.3.2 the wrapper is the default, so a page that set any of them and
+  // changed nothing else got them silently ignored on upgrade: no error, no
+  // warning, no visible difference until somebody noticed the behaviour they
+  // had asked for was gone.
+  //
+  // THROWING RATHER THAN QUIETLY HONOURING THEM is the deliberate choice, and
+  // it is worth saying why, because the other option was available.
+  //
+  // Three of the four cannot mean anything here. `visualHidden` says whether to
+  // clip the control off-screen — the wrapper's entire purpose is to draw it.
+  // `reveal` chooses between putting the words in the accessibility tree only
+  // or replacing the block on screen; the wrapper always does the second.
+  // `label` names a control the wrapper does not render, having its own named
+  // buttons. Making them "work" would mean inventing a meaning for each, and an
+  // invented meaning is a worse trap than an error.
+  //
+  // `note` is the one real loss: it renamed the sentence, and the wrapper has a
+  // sentence. The upgrade path is one word — `explain: { text }` — and the
+  // message below says so rather than making the author go and find it.
+  //
+  // The alternative was to accept them and map them across. It was rejected on
+  // the grounds this file states everywhere else: a silent behaviour change is
+  // the failure mode that costs the most and is noticed the latest.
+  if (wantsNotice && a11y) {
+    const inert = (["reveal", "visualHidden", "label", "note"] as const).filter(
+      (k) => (a11y as Record<string, unknown>)[k] !== undefined,
+    );
+    if (inert.length) {
+      const fix =
+        inert.length === 1 && inert[0] === "note"
+          ? `Move it to explain={{ text: … }}.`
+          : `Move any wording to explain={{ text: … }}, and use explain={false} ` +
+            `if you want the off-screen control these settings were written for.`;
+      const one = inert.length === 1;
+      throw new Error(
+        `${camo.logPrefix} <Shield> was given a11y.${inert.join(", a11y.")} ` +
+          `together with the drawn wrapper, which cannot honour ${one ? "it" : "them"}. ` +
+          `${one ? `${inert[0]} configures` : `${inert.join(", ")} configure`} the ` +
+          `OFF-SCREEN control, and the wrapper replaces that control with a visible ` +
+          `one. Before 0.3.2 the wrapper was opt-in, so this never arose; it is the ` +
+          `default now, and ${one ? "it was" : "they were"} being ignored in ` +
+          `silence. ${fix}`,
+      );
+    }
+  }
+
   const copyOn = copyPaste !== undefined ? copyPaste !== false : usesPuzzle;
   // Two sentences, because they are addressed to two different situations. With
   // a wrapper drawn there is a button on screen and the notice can name it;

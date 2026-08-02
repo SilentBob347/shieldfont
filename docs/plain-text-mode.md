@@ -465,6 +465,14 @@ Details that matter, and why:
 | `note` | the sentence above | The explanatory sentence for this block. |
 | `visualHidden` | `true` | Clips the whole control off-screen while keeping it in the accessibility tree. `false` puts it on screen. |
 
+> **These four — `reveal`, `visualHidden`, `label` and `note` — configure the
+> OFF-SCREEN control, so they apply to the INVISIBLE and MINIMAL tiers only.**
+> Passing any of them together with the drawn wrapper throws, naming the ones it
+> found and what to use instead. Until 0.3.2 they were ignored in silence, which
+> meant a page that set them and changed nothing else rendered differently on
+> upgrade with nothing to say so. Wording moves to `explain={{ text }}`; the
+> off-screen control itself is `explain={false}`.
+
 ---
 
 ## Requirements and edge cases

@@ -256,6 +256,52 @@ describe("markup validity", () => {
  * in Chromium against the live demo. The pattern in every case is the same: the
  * markup was individually reasonable and the SEQUENCE was not.
  */
+describe("settings the wrapper cannot honour fail loudly", () => {
+  // These four configure the OFF-SCREEN control. The wrapper replaces that
+  // control, so on the default tier they meant nothing — and until 0.3.2 they
+  // meant nothing SILENTLY, which is the part that mattered: a page that set
+  // them and changed nothing else got a different rendering on upgrade with no
+  // error, no warning and no way to find out except by noticing.
+  for (const key of ["reveal", "visualHidden", "label", "note"] as const) {
+    it(`throws for a11y.${key} on the drawn tier`, () => {
+      const value = key === "visualHidden" ? false : key === "reveal" ? "visible" : "x";
+      expect(() =>
+        Shield({ children: BODY, a11y: { mode: "text", [key]: value } } as never),
+      ).toThrow(new RegExp(`a11y\\.${key}`));
+    });
+
+    it(`allows a11y.${key} when the wrapper is off`, () => {
+      const value = key === "visualHidden" ? false : key === "reveal" ? "visible" : "x";
+      expect(() =>
+        Shield({ children: BODY, explain: false, a11y: { mode: "text", [key]: value } } as never),
+      ).not.toThrow();
+    });
+  }
+
+  it("names every offending key at once, not just the first", () => {
+    expect(() =>
+      Shield({
+        children: BODY,
+        a11y: { mode: "text", reveal: "visible", label: "L" },
+      } as never),
+    ).toThrow(/a11y\.reveal, a11y\.label/);
+  });
+
+  it("points at the replacement rather than only refusing", () => {
+    expect(() =>
+      Shield({ children: BODY, a11y: { mode: "text", note: "x" } } as never),
+    ).toThrow(/explain=\{\{ text/);
+  });
+
+  it("leaves the fields the wrapper DOES honour alone", () => {
+    // `seconds` is read on every tier; a blanket "any a11y field throws" would
+    // have taken it with them.
+    expect(() =>
+      Shield({ children: BODY, a11y: { mode: "text", seconds: 9 } } as never),
+    ).not.toThrow();
+  });
+});
+
 describe("the four tiers, and which one a bare <Shield> is", () => {
   // These pin the DEFAULT. Nothing else in the suite does: every other test
   // passes the switch it cares about, so the day the default moved from
