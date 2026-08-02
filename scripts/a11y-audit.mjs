@@ -201,6 +201,27 @@ try {
   // that made "revealed text mirrors the block's tag" fail: the check took the
   // FIRST output with content, which after a page-wide unlock is the <h2>, not
   // the paragraph whose button was pressed.
+  // WAIT FOR ALL OF THEM, not just the one that was pressed.
+  //
+  // The wait above is `.some()`, so it returns the moment the FIRST block
+  // finishes — and this counted immediately after. On a fast machine the other
+  // three had already landed and it passed; on a CI runner they had not, and it
+  // reported 1/4. A green local run and a red remote one for a difference in
+  // machine speed is the worst kind of test, because the first instinct is to
+  // distrust the runner rather than the assertion.
+  //
+  // Each block grinds its own puzzle independently, so "all four" genuinely
+  // takes longer than "any one" — the page-wide unlock starts them together, it
+  // does not make them finish together.
+  await page
+    .waitForFunction(
+      (n) =>
+        [...document.querySelectorAll("[data-typeface-out]")].filter((o) => o.textContent.length)
+          .length === n,
+      BLOCKS.length,
+      { timeout: 120000, polling: 250 },
+    )
+    .catch(() => {});
   const opened = await page.evaluate(() =>
     [...document.querySelectorAll("[data-typeface-out]")].filter((o) => o.textContent.length).length,
   );

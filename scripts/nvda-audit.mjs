@@ -72,12 +72,23 @@ const { origin, close } = await serveFixture();
 const browser = await chromium.launch({ headless: false });
 const page = await browser.newPage();
 
-/** Walk forward until `want` is satisfied or we run out of patience. */
+/**
+ * Walk forward, stopping at the end of the document.
+ *
+ * `nvda.next()` does not report having run out of page — it simply stops
+ * advancing and re-reads whatever it is parked on. A fixed step count therefore
+ * fills the log with the same phrase: the first run of this printed the final
+ * button twenty times, which looks like a rendering bug in the product and is a
+ * flaw in the harness. Two consecutive identical phrases mean the cursor did
+ * not move.
+ */
 async function walk(steps) {
   const said = [];
   for (let i = 0; i < steps; i++) {
     await nvda.next();
-    said.push(await nvda.lastSpokenPhrase());
+    const phrase = await nvda.lastSpokenPhrase();
+    if (said.length && phrase === said[said.length - 1]) break;
+    said.push(phrase);
   }
   return said;
 }
