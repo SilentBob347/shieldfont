@@ -123,6 +123,12 @@ try {
     "the uncover control names its cost before it is pressed",
   );
 
+  // 2b. AND SAYS NOTHING ELSE. Every button used to end "protected from AI
+  //     bots" — a third telling of what the sentence directly above already
+  //     says, on the words a reader most needs to hear cleanly, and it made
+  //     NVDA's Elements List a column of rows differing only at the start.
+  check(!all.includes("protected from ai bots"), "control names carry no filler");
+
   // 3. scbaker's exact question. The sentence has to be reachable and spoken —
   //    four earlier attempts put it somewhere screen readers silently skip.
   check(

@@ -2309,7 +2309,11 @@ function NoticeStrip({
     ? notice.labels.showLong
     : notice.labels.show;
   const named = (label: string) =>
-    `${label === notice.labels.show ? spokenShow : label}, ${notice.labels.gist}`;
+    notice.labels.gist
+      ? `${label === notice.labels.show ? spokenShow : label}, ${notice.labels.gist}`
+      : label === notice.labels.show
+        ? spokenShow
+        : label;
   const openSay = "You are now reading the original text.";
   // The chip's first words, before the device has been measured. Same string
   // the script writes once it has a number, so the wording never changes under

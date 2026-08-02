@@ -184,19 +184,24 @@ export interface ShieldNotice {
      */
     info?: string;
     /**
-     * The one fact that must survive, appended to every control's NAME.
-     * Default `"protected from AI bots"`.
+     * Appended to every control's spoken name. **No default — off.**
      *
-     * The full {@link ShieldNotice.text} rides along as the controls'
-     * DESCRIPTION, and that is not enough on its own: a description is
-     * supplementary and screen readers suppress it at default verbosity, so an
-     * explanation that lives only there is one many readers never hear. A name
-     * is never suppressed — a control without one is unusable — so the
-     * irreducible fact goes here and the elaboration stays in the description.
+     * It was `"protected from AI bots"`, on every button, on every block. The
+     * reasoning was sound and the result was not: descriptions are suppressed
+     * at default verbosity, so the irreducible fact went into the NAME, which
+     * is never suppressed. What that missed is that by the time a listener
+     * reaches a button they have already been told — the sentence sits directly
+     * above it and says the text is scrambled and what to do about it. The
+     * suffix was a third telling of something already said twice, and it landed
+     * on the words a reader most needs to hear cleanly.
      *
-     * Keep it to a few words. It is spoken before EVERY button on the block.
+     * It also made NVDA's Elements List useless for these controls: eighteen
+     * rows on a nine-block article, every one ending in the same four words,
+     * and the list filters from the START of the string.
+     *
+     * Set it if your blocks appear without a visible sentence beside them.
      */
-    gist?: string;
+        gist?: string;
     /**
      * Names the FRAME, which is a `role="group"`. **Defaults to
      * `"Protected text"`** — a short identifier, not the explanation.
@@ -272,7 +277,7 @@ export interface ResolvedNotice {
     group?: string;
     groupOpen?: string;
     progress: string;
-    gist: string;
+    gist?: string;
     showLong: string;
   };
   copyGuard: boolean;
@@ -361,7 +366,7 @@ export function resolveNotice(n: ShieldNotice | true): ResolvedNotice {
       copy: l.copy ?? "Copy",
       restore: l.restore ?? "Restore",
       info: l.info ?? "What does this mean?",
-      gist: l.gist ?? "protected from AI bots",
+      gist: l.gist,
       showLong: l.showLong ?? "Uncover the original text",
       // Defaults to the full explanation, so an author who translates `text`
       // gets a translated group name for free and never has to discover that

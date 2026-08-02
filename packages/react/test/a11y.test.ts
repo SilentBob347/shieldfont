@@ -370,7 +370,7 @@ describe("the drawn notice — what a listener is handed", () => {
 
 
 
-  it("states the action and the fact in every control's name", () => {
+  it("names every control for its action, and nothing else", () => {
     // Six paragraphs used to render twelve buttons named exactly "Original
     // text" — a control list (NVDA Insert+F7, VoiceOver rotor, JAWS Insert+F5)
     // showed a column of identical rows. The answer was a per-block ordinal.
@@ -378,8 +378,15 @@ describe("the drawn notice — what a listener is handed", () => {
     // The ordinal is GONE now, and deliberately: one press uncovers every
     // protected block on the page, so a name saying "for paragraph 2" would
     // describe a scope the control does not have. Identical names are the
-    // correct outcome for a control that does the identical thing. What the
-    // name must still carry is the action and the fact.
+    // correct outcome for a control that does the identical thing.
+    //
+    // The FACT is gone from the name too — every button used to end "protected
+    // from AI bots". By the time a listener reaches a button they have been
+    // told: the sentence sits directly above it and says the text is scrambled
+    // and what to do. The suffix was a third telling, landing on the words a
+    // reader most needs to hear cleanly, and it made NVDA's Elements List
+    // useless for these controls — every row ending in the same four words,
+    // and the list filters from the start of the string.
     const trees = withShieldRenderPass(() => [
       Shield({ children: BODY, as: "h2", explain: true } as never),
       Shield({ children: `${BODY} 2`, as: "p", explain: true } as never),
@@ -388,8 +395,10 @@ describe("the drawn notice — what a listener is handed", () => {
     for (const t of trees) {
       for (const b of byAttrAll(t, `${A}-act`)) {
         const name = props(b)["aria-label"] as string;
-        expect(name).toContain("protected from AI bots");
+        expect(name).not.toContain("protected from AI bots");
         expect(name).not.toMatch(/paragraph \d|heading \d/);
+        // Still says what it does.
+        expect(name).toMatch(/copy|uncover/i);
       }
     }
     const shows = trees.flatMap((t) =>
