@@ -1939,8 +1939,18 @@ function renderA11y(
           {...({ [`${attr}-alt-note`]: "", [`${attr}-say-full`]: "" } as Record<string, string>)}
           tabIndex={0}
           role="note"
-          aria-label={note}
         >
+          {/*
+            NO aria-label. It held this same sentence, so the string was in the
+            DOM twice: browse mode reads the content, focus reads the name, and
+            some assistive technology reads both.
+            
+            The deciding argument is narrower and worse than duplication.
+            Attribute text is skipped by browser translation — so the one
+            sentence whose entire job is to tell a translator user to uncover
+            the text was being delivered in the single form a translator cannot
+            reach. The text node is translated; the label was not.
+          */}
           {note}
         </Note>
       </span>
@@ -2571,7 +2581,6 @@ function renderPuzzle(
         hidden
         style={OFF}
         aria-hidden="true"
-        aria-label="Decoding progress"
         {...({ [`${attr}-bar`]: "" } as Record<string, string>)}
       />
       {/*

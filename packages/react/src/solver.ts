@@ -74,7 +74,16 @@
  *   is one update the reader never hears.
  * - localStorage is a fast path only. Every failure around it is swallowed:
  *   storage can be disabled, full, or partitioned, and none of that is a reason
- *   to deny someone their text. It is also read AFTER the button is shown and
+ * - NO aria-busy. It was set on the wrapper for the whole grind — the same
+ *   wrapper that CONTAINS the polite live region. Per the ARIA spec aria-busy
+ *   tells assistive technology it may ignore changes until busy goes false and
+ *   then treat them as one update, which is a request to suppress exactly the
+ *   announcements this feature depends on. Support is inconsistent, and that
+ *   inconsistency is the only reason the estimate and the milestones were heard
+ *   at all. It bought nothing either way: nothing announces "busy" for a
+ *   generic container, aria-disabled on the button already carries the state,
+ *   and SC 4.1.3 is satisfied by the live region.
+ * - localStorage is a fast path only. It is read AFTER the button is shown and
  *   wired, which is load-bearing: the read used to sit above them and return
  *   early, so a cached value that failed to open removed itself and left the
  *   block with no button, no listener and no status for the rest of the page
@@ -248,7 +257,6 @@ function wire(btn){
     if (onScreen) hide(targetBlock());
     hide(btn);
     hide(bar);
-    wrap.removeAttribute('aria-busy');
     text(status, cached ? 'The text is ready.' : (onScreen ? 'Done. The text is shown below.' : 'Done.'));
     out.textContent = plain;
     out.setAttribute('tabindex', '0');
@@ -289,7 +297,6 @@ function wire(btn){
         try { db.click(); } catch (e) {}
       }
     }
-    wrap.setAttribute('aria-busy', 'true');
     show(bar);
     if (bar) bar.value = 0;
     var hexLen = BigInt(data.n).toString(16).length;
@@ -317,8 +324,7 @@ function wire(btn){
       });
     }
     function fail(msg){
-      wrap.removeAttribute('aria-busy');
-      hide(bar);
+        hide(bar);
       btn.removeAttribute('aria-disabled');
       show(btn);
       text(status, msg + ' You can try again.');

@@ -316,10 +316,14 @@ describe("the control is usable by a screen reader", () => {
     // old contract bought one reader an on-demand query and charged another
     // twenty seconds of beeping over the live region explaining the wait.
     //
-    // The label is kept even though the element is hidden: it costs nothing,
-    // and it is the thing to un-hide if someone with NVDA reports no beeping.
+    // AND NO LABEL. "It costs nothing" was wrong twice over. It was a hard-coded
+    // English string rather than `labels.progress`, so it was untranslatable as
+    // well as unreadable — an aria-label on an aria-hidden element names nothing
+    // for anyone — and a stray English sentence in the markup is the one kind of
+    // dead code setCamouflage() can never rename. If someone with NVDA reports
+    // no beeping, un-hide the bar and give it the label from `labels.progress`.
     expect(props(bar!)["aria-hidden"]).toBe("true");
-    expect(props(bar!)["aria-label"]).toBe("Decoding progress");
+    expect(props(bar!)["aria-label"]).toBeUndefined();
   });
 
   it("gives the output element a focus target and starts it hidden", () => {

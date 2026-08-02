@@ -747,6 +747,21 @@ export function altCss(attr: string): string {
   );
 }
 
+/*
+ * NO say('working') BEFORE est(). est() overwrites the status ~80ms later with
+ * the same lead plus a measured duration, and solver.ts's header records what
+ * the pair costs: "VoiceOver read the pair as 'working this' before being cut
+ * off. Two polite updates inside one breath is one update the reader never
+ * hears." The clipped path had this deleted; this path was written afterwards
+ * and reproduced it. The ~80ms of silence is covered for sighted readers by the
+ * button dimming and the bar appearing.
+ *
+ * NO aria-busy anywhere. It was on the actions container during the grind, and
+ * on the clipped tier it was on the wrapper that CONTAINS the live region —
+ * where the ARIA spec's meaning ("you may ignore changes until this goes
+ * false") is a request to suppress the exact announcements the feature depends
+ * on. Inconsistent support is the only reason they were heard at all.
+ */
 export function noticeScript(names: NoticeNames): string {
   const { attr, flag, logPrefix, storePrefix, family } = names;
   const WORKER_BODY =
@@ -918,8 +933,6 @@ Frame.prototype.paintStrip = function(strip){
   if (gCheck) gCheck.hidden = st !== 'open';
   var busy = st === 'working';
   if (acts){
-    if (busy) acts.setAttribute('aria-busy', 'true');
-    else acts.removeAttribute('aria-busy');
   }
   var btns = strip.querySelectorAll('[' + A + '-act]');
   var anyBusy = busy;
@@ -949,7 +962,6 @@ Frame.prototype.run = function(intent, strip, own){
   this.state = 'working';
   this.paint();
   this.hold(strip, intent === 'copy' ? 'copy' : 'show');
-  this.say('working');
   var marks = [], spoke = 0, once = false;
   function est(s){
     if (once) return; once = true;

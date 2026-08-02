@@ -513,10 +513,14 @@ describe("the drawn notice — the emitted script", () => {
     // after: activeElement went from BODY to the pressed button.
     //
     // The busy state is now a dim, not a removal: aria-disabled on the buttons,
-    // aria-busy on the group that holds them.
+    // NO aria-busy. It used to mark the actions container for the whole grind,
+    // and on the clipped tier the wrapper that CONTAINS the live region. The
+    // ARIA spec's meaning is "you may ignore changes here until this goes
+    // false", which on the element holding a polite live region is a request to
+    // suppress the announcements this feature exists to make. Inconsistent
+    // support was the only reason the estimate was heard at all.
     const s = js();
-    expect(s).toContain("aria-disabled");
-    expect(s).toContain("aria-busy");
+    expect(s).not.toContain("aria-busy");
     // The old line, exactly as it read. Its return would restore the bug.
     expect(s).not.toContain("if (st === 'working'){ b.hidden = true; continue; }");
   });
